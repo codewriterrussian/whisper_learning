@@ -1,0 +1,15 @@
+{
+  "name": "whisper-learning-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --test run_storage.test.js"
+  },
+  "dependencies": {
+    "cors": "latest",
+    "express": "latest",
+    "multer": "latest"
+  }
+}
