@@ -1,4 +1,5 @@
 import "./style.css";
+import { buildWaveformBuckets, monoSamplesFromAudioBuffer } from "./waveform.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:6174";
 
@@ -44,6 +45,7 @@ const historyListEl = document.querySelector("#historyList");
 const showAllHistoryBtn = document.querySelector("#showAllHistoryBtn");
 const clearLocalDataBtn = document.querySelector("#clearLocalDataBtn");
 const overallScoreEl = document.querySelector("#overallScore");
+const providerModeResultEl = document.querySelector("#providerModeResult");
 const fluencyScoreSummaryEl = document.querySelector("#fluencyScoreSummary");
 const focusWordResultEl = document.querySelector("#focusWordResult");
 const teacherFeedbackResultEl = document.querySelector("#teacherFeedbackResult");
@@ -68,6 +70,10 @@ const silenceRemovedEl = document.querySelector("#silenceRemoved");
 const exactRatioEl = document.querySelector("#exactRatio");
 const partialRatioEl = document.querySelector("#partialRatio");
 const tokenSortRatioEl = document.querySelector("#tokenSortRatio");
+const debugAttemptIdEl = document.querySelector("#debugAttemptId");
+const debugProviderModeEl = document.querySelector("#debugProviderMode");
+const debugProviderStatusesEl = document.querySelector("#debugProviderStatuses");
+const debugResultSourceEl = document.querySelector("#debugResultSource");
 const comparisonResultEl = document.querySelector("#comparisonResult");
 
 let mediaRecorder = null;
@@ -205,6 +211,30 @@ function getNativeScore(result = {}) {
     return result.bothScores?.colab_whisper || "--";
   }
   return result.bothScores?.apple || "--";
+}
+
+function getProviderMode(result = {}) {
+  return result.providerMode || result.resultJson?.providerMode || result.sttProvider || "whisper";
+}
+
+function getProviderModeLabel(result = {}) {
+  const mode = getProviderMode(result);
+  const nativeProvider = result.nativeProvider || platformConfig.nativeProvider || "";
+  const nativeLabel = getNativeProviderLabel(nativeProvider);
+
+  if (mode === "both") {
+    return `Whisper + ${nativeLabel}`;
+  }
+  if (mode === "apple") {
+    return "Apple Speech only";
+  }
+  if (mode === "windows_speech") {
+    return "Windows Speech only";
+  }
+  if (mode === "colab_whisper") {
+    return "Colab Whisper GPU";
+  }
+  return "Whisper only";
 }
 
 function updateRemoteSttWarning() {
@@ -911,21 +941,24 @@ function getProviderDisplayScore(providerName, scoreText, transcript, status = "
 }
 
 function getWordAccuracySummary(result) {
-  if (result.bothScores) {
+  const providerMode = getProviderMode(result);
+  if (providerMode === "both" && result.bothScores) {
     const whisperTranscript = result.bothTranscripts?.whisper || "";
     const nativeTranscript = getNativeTranscript(result);
     const nativeLabel = getNativeProviderLabel(getNativeProviderKey(result));
     const whisperScore = getProviderDisplayScore("Whisper", result.bothScores.whisper, whisperTranscript, result.whisperStatus || "ok");
     const nativeScore = getProviderDisplayScore(nativeLabel, getNativeScore(result), nativeTranscript, getNativeStatus(result));
-    return `Whisper ${whisperScore.replace(/^Whisper /, "")} · ${nativeLabel} ${nativeScore.replace(new RegExp(`^${nativeLabel} `), "")}`;
+    return `Main score: Whisper ${whisperScore.replace(/^Whisper /, "")} · Native comparison: ${nativeLabel} ${nativeScore.replace(new RegExp(`^${nativeLabel} `), "")}`;
   }
 
-  const isNativeOnly = result.sttProvider === "apple" || result.sttProvider === "windows_speech" || result.sttProvider === "colab_whisper";
-  const providerName = isNativeOnly ? getNativeProviderLabel(result.sttProvider) : "Whisper";
-  const providerStatus = isNativeOnly ? getNativeStatus({ ...result, nativeProvider: result.sttProvider }) : result.whisperStatus || "ok";
-  const score = getProviderDisplayScore(providerName, result.overallScore, result.transcript, providerStatus);
+  const isNativeOnly = providerMode === "apple" || providerMode === "windows_speech" || providerMode === "colab_whisper";
+  const providerName = isNativeOnly ? getNativeProviderLabel(providerMode) : "Whisper";
+  const providerStatus = isNativeOnly ? getNativeStatus({ ...result, nativeProvider: providerMode }) : result.whisperStatus || "ok";
+  const providerScore = isNativeOnly ? getNativeScore({ ...result, nativeProvider: providerMode }) : result.overallScore;
+  const providerTranscript = isNativeOnly ? getNativeTranscript({ ...result, nativeProvider: providerMode }) || result.transcript : result.transcript;
+  const score = getProviderDisplayScore(providerName, providerScore, providerTranscript, providerStatus);
   return score.includes("unavailable") || score.includes("invalid transcript") || score.includes("skipped")
-    ? score
+    ? score.replace(" skipped", " not used in this mode")
     : `${score} · ${result.scoreLabel}`;
 }
 
@@ -1061,6 +1094,7 @@ function savePracticeHistory(result) {
         targetText: result.targetText,
         wordAccuracy: getWordAccuracySummary(result),
         fluencyTiming: getFluencyTimingScore(result.audioSimilarity),
+        providerMode: getProviderMode(result),
         whisperStatus: result.whisperStatus,
         appleStatus: result.appleStatus,
         windowsSpeechStatus: result.windowsSpeechStatus,
@@ -1265,11 +1299,14 @@ function getFocusPractice(targetText, transcriptText, providerContext = {}) {
     : [...whisperIssues, ...nativeIssues];
   const focusToken = practiceTokens[0] || null;
   const focusWord = focusToken?.text || "";
-  const confidence = focusWord && nativeAvailable && whisperIssueWords.has(focusWord) && nativeIssueWords.has(focusWord)
-    ? "high"
-    : focusWord
-      ? "possible"
-      : "none";
+  let confidence = "none";
+  if (focusWord && nativeAvailable && whisperAvailable && whisperIssueWords.has(focusWord) && nativeIssueWords.has(focusWord)) {
+    confidence = "high";
+  } else if (focusWord && nativeAvailable && !whisperAvailable && nativeIssueWords.has(focusWord)) {
+    confidence = "low";
+  } else if (focusWord) {
+    confidence = "possible";
+  }
 
   if (!focusWord) {
     return {
@@ -1296,9 +1333,11 @@ function getFocusPractice(targetText, transcriptText, providerContext = {}) {
   const phrase = phraseWords.join(" ");
   const reason = confidence === "high"
     ? `Both Whisper and ${nativeLabel} missed or questioned this word, so it is a high-confidence focus area.`
-    : focusToken?.pairedWith
-      ? `One STT transcript heard "${focusToken.pairedWith}" instead, so this word may need clearer pronunciation.`
-      : "One STT transcript missed or questioned this word, so it may need clearer pronunciation.";
+    : confidence === "low"
+      ? `Detected by ${nativeLabel} only. Whisper was not used in this mode, so treat this as a low-confidence focus area.`
+      : focusToken?.pairedWith
+        ? `One STT transcript heard "${focusToken.pairedWith}" instead, so this word may need clearer pronunciation.`
+        : "One STT transcript missed or questioned this word, so it may need clearer pronunciation.";
 
   return {
     word: focusWord,
@@ -1346,10 +1385,10 @@ function drawWaveform(canvas, audioBuffer, trimStart = 0, trimEnd = audioBuffer.
   const context = canvas.getContext("2d");
   const width = canvas.width;
   const height = canvas.height;
-  const channelData = audioBuffer.getChannelData(0);
-  const samplesPerPixel = Math.max(1, Math.floor(channelData.length / width));
+  const channelData = monoSamplesFromAudioBuffer(audioBuffer);
   const trimStartX = (trimStart / audioBuffer.duration) * width;
   const trimEndX = (trimEnd / audioBuffer.duration) * width;
+  const waveform = buildWaveformBuckets(channelData, width);
 
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#f8fafc";
@@ -1360,22 +1399,11 @@ function drawWaveform(canvas, audioBuffer, trimStart = 0, trimEnd = audioBuffer.
   context.lineWidth = 1;
   context.beginPath();
 
-  for (let x = 0; x < width; x += 1) {
-    let min = 1;
-    let max = -1;
-    const start = x * samplesPerPixel;
-    const end = Math.min(start + samplesPerPixel, channelData.length);
-
-    for (let index = start; index < end; index += 1) {
-      const value = channelData[index];
-      min = Math.min(min, value);
-      max = Math.max(max, value);
-    }
-
-    const yMin = ((1 - min) / 2) * height;
-    const yMax = ((1 - max) / 2) * height;
-    context.moveTo(x, yMin);
-    context.lineTo(x, yMax);
+  for (let x = 0; x < waveform.buckets.length; x += 1) {
+    const amplitude = Math.max(0.03, waveform.buckets[x]);
+    const halfHeight = (amplitude * height) / 2;
+    context.moveTo(x, (height / 2) - halfHeight);
+    context.lineTo(x, (height / 2) + halfHeight);
   }
 
   context.stroke();
@@ -1387,6 +1415,7 @@ function drawWaveform(canvas, audioBuffer, trimStart = 0, trimEnd = audioBuffer.
   context.moveTo(trimEndX, 0);
   context.lineTo(trimEndX, height);
   context.stroke();
+  return waveform;
 }
 
 function drawLiveWaveform() {
@@ -1489,7 +1518,7 @@ async function renderAttemptWaveforms() {
       const trimEnd = attempt.trimEnd ?? audioBuffer.duration;
       canvas.width = canvas.clientWidth * window.devicePixelRatio;
       canvas.height = 72 * window.devicePixelRatio;
-      drawWaveform(canvas, audioBuffer, trimStart, trimEnd);
+      const waveform = drawWaveform(canvas, audioBuffer, trimStart, trimEnd);
       attempt.duration = audioBuffer.duration;
       attempt.trimStart = trimStart;
       attempt.trimEnd = trimEnd;
@@ -1497,11 +1526,16 @@ async function renderAttemptWaveforms() {
       const durationEl = attemptsListEl.querySelector(`[data-duration-for="${attempt.id}"]`);
       if (durationEl) {
         durationEl.textContent = `Duration ${formatDuration(audioBuffer.duration)}`;
+        durationEl.classList.toggle("waveform-warning", Boolean(waveform?.quiet));
+        if (waveform?.quiet) {
+          durationEl.textContent += " · Recording may be quiet";
+        }
       }
     } catch (_error) {
       const durationEl = attemptsListEl.querySelector(`[data-duration-for="${attempt.id}"]`);
       if (durationEl) {
         durationEl.textContent = "Waveform unavailable";
+        durationEl.classList.remove("waveform-warning");
       }
     }
   }
@@ -1527,7 +1561,12 @@ async function updateTrimPreview(attemptId, changedEdge, value) {
   attempt.duration = duration;
   const canvas = attemptsListEl.querySelector(`.waveform-canvas[data-attempt-id="${attempt.id}"]`);
   if (canvas) {
-    drawWaveform(canvas, audioBuffer, attempt.trimStart ?? 0, attempt.trimEnd ?? duration);
+    const waveform = drawWaveform(canvas, audioBuffer, attempt.trimStart ?? 0, attempt.trimEnd ?? duration);
+    const durationEl = attemptsListEl.querySelector(`[data-duration-for="${attempt.id}"]`);
+    if (durationEl) {
+      durationEl.classList.toggle("waveform-warning", Boolean(waveform?.quiet));
+      durationEl.textContent = `Duration ${formatDuration(duration)}${waveform?.quiet ? " · Recording may be quiet" : ""}`;
+    }
   }
 }
 
@@ -1981,6 +2020,7 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
   const transcript = (data.transcript || "").trim();
   const bothScores = data.scores || null;
   const bothTranscripts = data.transcripts || null;
+  const providerMode = data.providerMode || data.resultJson?.providerMode || data.sttProvider || "whisper";
   const nativeProvider = data.nativeProvider || platformConfig.nativeProvider || (data.sttProvider === "windows_speech" ? "windows_speech" : data.sttProvider === "apple" ? "apple" : data.sttProvider === "colab_whisper" ? "colab_whisper" : "");
   const overallScore = getOverallScore(comparison);
   const scoreValue = getScoreValue(overallScore);
@@ -2062,6 +2102,7 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
     checkedAt: data.createdAt || data.resultJson?.createdAt || new Date().toISOString(),
     language,
     sttProvider: data.sttProvider || "whisper",
+    providerMode,
     nativeProvider,
     nativeProviderLabel: getNativeProviderLabel(nativeProvider),
     languageTip,
@@ -2107,8 +2148,16 @@ function renderResults(result) {
   overallScoreEl.textContent = getWordAccuracySummary(result);
   fluencyScoreSummaryEl.textContent = getFluencyTimingScore(audioSimilarity);
   const focusPractice = getResultFocusPractice(result);
+  const confidenceLabel = focusPractice.confidence === "high"
+    ? "high-confidence issue"
+    : focusPractice.confidence === "low"
+      ? "low-confidence issue"
+      : "possible issue";
+  const confidenceSource = focusPractice.confidence === "low" && focusPractice.reason
+    ? `\n${focusPractice.reason}`
+    : "";
   focusWordResultEl.textContent = focusPractice.word
-    ? `Focus word: ${focusPractice.word}${focusPractice.confidence === "high" ? " · high-confidence issue" : " · possible issue"}`
+    ? `Focus word: ${focusPractice.word} · ${confidenceLabel}${confidenceSource}`
     : "Focus word: full sentence";
   teacherFeedbackResultEl.textContent = buildTeacherFeedback({
     feedback: result.feedback,
@@ -2118,13 +2167,15 @@ function renderResults(result) {
   });
   targetResultEl.textContent = result.targetText || "";
 
+  providerModeResultEl.textContent = `Mode: ${getProviderModeLabel(result)}`;
+
   if (isProviderUsable(result.whisperStatus)) {
     const recoveredNote = result.whisperStatus === "ok_retry" ? "Whisper recovered after retry.\n\n" : "";
     transcriptResultEl.textContent = `${recoveredNote}${result.bothTranscripts?.whisper || result.transcript}`;
   } else if (result.whisperStatus === "invalid") {
     transcriptResultEl.textContent = `Whisper invalid transcript. It was ignored for scoring${result.whisperNote ? `: ${result.whisperNote}` : "."}`;
   } else if (result.whisperStatus === "skipped") {
-    transcriptResultEl.textContent = "Whisper skipped for this check.";
+    transcriptResultEl.textContent = "Whisper not used in this mode.";
   } else {
     transcriptResultEl.textContent = `Whisper unavailable${result.whisperNote ? `: ${result.whisperNote}` : "."}`;
   }
@@ -2171,6 +2222,15 @@ function renderResults(result) {
   exactRatioEl.textContent = result.metrics.exactRatio;
   partialRatioEl.textContent = result.metrics.partialRatio;
   tokenSortRatioEl.textContent = result.metrics.tokenSortRatio;
+  debugAttemptIdEl.textContent = result.attemptId || "--";
+  debugProviderModeEl.textContent = getProviderMode(result);
+  debugProviderStatusesEl.textContent = JSON.stringify({
+    whisper: result.whisperStatus || "skipped",
+    apple: result.appleStatus || "skipped",
+    windows_speech: result.windowsSpeechStatus || "skipped",
+    colab_whisper: result.colabWhisperStatus || "skipped",
+  });
+  debugResultSourceEl.textContent = result.resultJsonPath || result.resultJson?.files?.resultJson || "--";
   exportReportBtn.disabled = false;
 }
 
@@ -2644,6 +2704,7 @@ exportReportBtn.addEventListener("click", () => {
     windowsSpeechTranscript: isProviderUsable(displayedResult.windowsSpeechStatus) ? displayedResult.bothTranscripts?.windows_speech || (displayedResult.sttProvider === "windows_speech" ? displayedResult.transcript : "") || "" : "",
     colabWhisperTranscript: isProviderUsable(displayedResult.colabWhisperStatus) ? displayedResult.bothTranscripts?.colab_whisper || (displayedResult.sttProvider === "colab_whisper" ? displayedResult.transcript : "") || "" : "",
     nativeProvider: getNativeProviderKey(displayedResult),
+    providerMode: getProviderMode(displayedResult),
     nativeTranscript: isProviderUsable(getNativeStatus(displayedResult)) ? getNativeTranscript(displayedResult) : "",
     wordAccuracy: getWordAccuracySummary(displayedResult),
     fluencyTimingScore: getFluencyTimingScore(displayedResult.audioSimilarity),

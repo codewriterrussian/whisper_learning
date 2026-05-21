@@ -201,6 +201,8 @@ Colab Whisper is experimental and remote. The local app remains the default and 
 
 Audio is uploaded to the Colab runtime. Do not use this mode for private or sensitive recordings. Free Colab GPU availability is not guaranteed, sessions can disconnect, and the public URL changes each session.
 
+The notebook uses a Cloudflare Quick Tunnel. Quick Tunnels create temporary `trycloudflare.com` URLs that proxy public traffic to the Flask service running on Colab localhost.
+
 GitHub-friendly Colab link placeholder:
 
 ```text
@@ -238,6 +240,14 @@ export COLAB_STT_TIMEOUT=120
 ```
 
 The Colab worker endpoint accepts multipart audio plus optional `language`, `model`, and `fastMode` fields. It returns JSON with `status`, `transcript`, `model`, `device`, and `timeSec`. If the worker is missing, disconnected, times out, or returns invalid JSON, the app marks Colab Whisper as unavailable/failed and does not show a fake `0.0/100`.
+
+If the notebook stops at `Starting Cloudflare tunnel...` and never prints a `trycloudflare.com` URL, rerun only the tunnel cell. First check the local worker health in Colab:
+
+```python
+requests.get("http://127.0.0.1:7860/health").json()
+```
+
+If local health works but no public URL appears, the issue is the Cloudflare tunnel step, not Whisper. Restarting the Colab runtime and rerunning all cells usually creates a fresh temporary tunnel.
 
 ## Both Provider Mode
 
@@ -278,7 +288,7 @@ Common environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PYTHON` | `python` or `python3` from `PATH` | Python executable for backend STT/TTS scripts. |
+| `PYTHON` | auto-detected by launcher | Python executable for backend STT/TTS scripts. `run_web_app.sh` prefers the local `stt_whisper` Conda environment when present. |
 | `EDGE_TTS_PYTHON` | same as `PYTHON` | Python executable used for target audio generation. |
 | `WHISPER_MODEL` | `large` | Default Whisper model. |
 | `WHISPER_DEVICE` | `auto` | Whisper device: `auto`, `cpu`, `mps`, or `cuda`. |
@@ -286,7 +296,7 @@ Common environment variables:
 | `WHISPER_RETRY_DEVICE` | `same` | Use `same` or `cpu` for safer retry after invalid Whisper output. |
 | `COLAB_STT_URL` | unset | Public `/transcribe` URL from the optional Colab Whisper worker. |
 | `COLAB_STT_TIMEOUT` | `120` | Timeout in seconds for remote Colab transcription. |
-| `STT_LANGUAGE_AUTO_OVERRIDE` | unset | Set to `1` to override selected language when target text strongly indicates another language. |
+| `STT_LANGUAGE_AUTO_OVERRIDE` | `1` in launcher scripts | Override selected language when target text strongly indicates another language. |
 | `BACKEND_PORT` | `6174` | Backend port. |
 | `FRONTEND_PORT` | `6173` | Frontend port. |
 | `FRONTEND_HOST` | `127.0.0.1` | Frontend host binding. |
@@ -347,6 +357,13 @@ Heute übe ich deutliches Sprechen, langsames Tempo und natürlichen Rhythmus.
 ```
 
 ## Troubleshooting
+
+macOS startup:
+
+- macOS users can normally run `./run_web_app.sh`.
+- The launcher prefers `/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python`, then `$HOME/opt/anaconda3/envs/stt_whisper/bin/python`, then `$HOME/miniforge3/envs/stt_whisper/bin/python`.
+- If the wrong Python is selected, start with `PYTHON=/path/to/env/bin/python ./run_web_app.sh`.
+- If dependencies are missing, the launcher stops early and prints the selected Python plus the missing packages.
 
 Whisper model download is slow:
 

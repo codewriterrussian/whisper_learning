@@ -10,6 +10,7 @@ test("result panel has the checking progress and final result anchors", () => {
     "checkingProgressPanel",
     "practiceResultContent",
     "overallScore",
+    "providerModeResult",
     "fluencyScoreSummary",
     "transcriptResult",
     "appleTranscriptCard",
@@ -23,6 +24,8 @@ test("settings are platform-aware in frontend source", () => {
   assert.match(mainJs, /api\/bootstrap/);
   assert.match(mainJs, /windows_speech/);
   assert.match(mainJs, /getNativeProviderLabel/);
+  assert.match(mainJs, /getProviderModeLabel/);
+  assert.match(mainJs, /Whisper not used in this mode/);
 });
 
 test("clear local data UI is wired", () => {

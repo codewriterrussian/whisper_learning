@@ -449,6 +449,10 @@ audio:not([hidden]) + .audio-empty {
   font-weight: 700;
 }
 
+.waveform-warning {
+  color: #b45309;
+}
+
 .attempt-audio-row,
 .attempt-waveform-row {
   display: grid;
@@ -465,6 +469,13 @@ audio:not([hidden]) + .audio-empty {
 
 .model-waveform {
   margin-top: 10px;
+}
+
+.provider-mode-result {
+  margin: 10px 0 0;
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 760;
 }
 
 .trim-section {

@@ -45,6 +45,7 @@ test("result JSON contains provider statuses and timing", () => {
     whisperModel: "large-v3-turbo",
     whisperDevice: "mps",
     sttProvider: "both",
+    providerMode: "both",
     nativeProvider: "apple",
     whisperStatus: "ok",
     appleStatus: "ok",
@@ -67,6 +68,9 @@ test("result JSON contains provider statuses and timing", () => {
   assert.equal(result.providerStatuses.apple, "ok");
   assert.equal(result.providerStatuses.windows_speech, "skipped");
   assert.equal(result.providerStatuses.colab_whisper, "skipped");
+  assert.equal(result.providerMode, "both");
+  assert.equal(result.providers.whisper.status, "ok");
+  assert.equal(result.providers.windows_speech.status, "skipped");
   assert.equal(result.timingBreakdown.total, 1500);
   assert.equal(result.files.resultJson, path.join("runs", "attempt-a", "result.json"));
   assert.equal(result.files.colabWhisperTranscript, path.join("runs", "attempt-a", "transcript.colab_whisper.txt"));
@@ -85,6 +89,7 @@ test("history summary can point to the correct attempt ID", () => {
     whisperModel: "large",
     whisperDevice: "mps",
     sttProvider: "whisper",
+    providerMode: "whisper",
     nativeProvider: "",
     whisperStatus: "ok",
     appleStatus: "skipped",
@@ -108,8 +113,47 @@ test("history summary can point to the correct attempt ID", () => {
     appleStatus: result.providerStatuses.apple,
     windowsSpeechStatus: result.providerStatuses.windows_speech,
     colabWhisperStatus: result.providerStatuses.colab_whisper,
+    providerMode: result.providerMode,
   };
 
   assert.equal(historySummary.attemptId, "attempt-history");
   assert.equal(historySummary.resultJsonPath, path.join("runs", "attempt-history", "result.json"));
+});
+
+test("Windows Speech only stores provider mode and skipped Whisper is not scored", () => {
+  const root = "/tmp/whisper_learning_test";
+  const paths = buildRunPaths(root, "attempt-windows");
+  const result = buildCanonicalResult({
+    root,
+    paths,
+    attemptId: "attempt-windows",
+    createdAt: "2026-05-20T00:00:00.000Z",
+    language: "en",
+    targetText: "Today I will practice.",
+    whisperModel: "large",
+    whisperDevice: "auto",
+    sttProvider: "windows_speech",
+    providerMode: "windows_speech",
+    nativeProvider: "windows_speech",
+    whisperStatus: "skipped",
+    appleStatus: "skipped",
+    windowsSpeechStatus: "ok",
+    colabWhisperStatus: "skipped",
+    whisperNote: "",
+    appleNote: "",
+    windowsSpeechNote: "",
+    colabWhisperNote: "",
+    providerTranscripts: { whisper: "", apple: "", windows_speech: "Today I will practice.", colab_whisper: "" },
+    providerScores: { whisper: "--", apple: "--", windows_speech: "100.0/100", colab_whisper: "--" },
+    audioSimilarity: { status: "ok" },
+    focusWord: "",
+    teacherFeedback: "Good.",
+    timingBreakdown: { total: 1000 },
+  });
+
+  assert.equal(result.providerMode, "windows_speech");
+  assert.equal(result.providers.whisper.status, "skipped");
+  assert.equal(result.providers.whisper.score, "--");
+  assert.equal(result.providers.windows_speech.status, "ok");
+  assert.equal(result.providers.windows_speech.score, "100.0/100");
 });
