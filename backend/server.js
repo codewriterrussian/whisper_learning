@@ -193,6 +193,13 @@ function shouldAutoOverrideLanguage() {
   return process.env.STT_LANGUAGE_AUTO_OVERRIDE === "1";
 }
 
+function formatLanguageSelectionMessage({ targetLanguageHint, selectedLanguage, usedLanguage, autoOverride, purpose }) {
+  const action = autoOverride
+    ? `auto override enabled; using ${usedLanguage}`
+    : `manual language selection active; using selected language ${usedLanguage}`;
+  return `${purpose}: target sentence language hint=${targetLanguageHint}; selected UI language=${selectedLanguage}; ${action}`;
+}
+
 function normalizeWhisperModel(model) {
   if (!model || model === "default") {
     return ALLOWED_WHISPER_MODELS.has(process.env.WHISPER_MODEL) ? process.env.WHISPER_MODEL : DEFAULT_WHISPER_MODEL;
@@ -659,10 +666,23 @@ app.post("/api/target-audio", async (req, res) => {
     const inferredLanguage = inferLanguageFromTargetText(targetText);
     if (inferredLanguage && inferredLanguage !== language) {
       if (shouldAutoOverrideLanguage()) {
-        console.log(`[STT] Target text looks like ${inferredLanguage}; overriding selected language ${language} for target audio.`);
+        const selectedLanguage = language;
         language = inferredLanguage;
+        console.log(`[STT] ${formatLanguageSelectionMessage({
+          targetLanguageHint: inferredLanguage,
+          selectedLanguage,
+          usedLanguage: language,
+          autoOverride: true,
+          purpose: "target audio language selection",
+        })}`);
       } else {
-        console.log(`[STT] Target text looks like ${inferredLanguage}; keeping selected language ${language}. Set STT_LANGUAGE_AUTO_OVERRIDE=1 to override automatically.`);
+        console.log(`[STT] ${formatLanguageSelectionMessage({
+          targetLanguageHint: inferredLanguage,
+          selectedLanguage: language,
+          usedLanguage: language,
+          autoOverride: false,
+          purpose: "target audio language selection",
+        })}. Set STT_LANGUAGE_AUTO_OVERRIDE=1 to auto-switch from the target sentence hint.`);
       }
     }
 
@@ -736,10 +756,23 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const inferredLanguage = inferLanguageFromTargetText(targetText);
     if (inferredLanguage && inferredLanguage !== language) {
       if (shouldAutoOverrideLanguage()) {
-        logAttempt(attemptId, `target text looks like ${inferredLanguage}; overriding selected language ${language} for STT`);
+        const selectedLanguage = language;
         language = inferredLanguage;
+        logAttempt(attemptId, formatLanguageSelectionMessage({
+          targetLanguageHint: inferredLanguage,
+          selectedLanguage,
+          usedLanguage: language,
+          autoOverride: true,
+          purpose: "STT language selection",
+        }));
       } else {
-        logAttempt(attemptId, `target text looks like ${inferredLanguage}; keeping selected language ${language}. Set STT_LANGUAGE_AUTO_OVERRIDE=1 to override automatically.`);
+        logAttempt(attemptId, `${formatLanguageSelectionMessage({
+          targetLanguageHint: inferredLanguage,
+          selectedLanguage: language,
+          usedLanguage: language,
+          autoOverride: false,
+          purpose: "STT language selection",
+        })}. Set STT_LANGUAGE_AUTO_OVERRIDE=1 to auto-switch from the target sentence hint.`);
       }
     }
 

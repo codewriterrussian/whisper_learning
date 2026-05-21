@@ -296,7 +296,7 @@ Common environment variables:
 | `WHISPER_RETRY_DEVICE` | `same` | Use `same` or `cpu` for safer retry after invalid Whisper output. |
 | `COLAB_STT_URL` | unset | Public `/transcribe` URL from the optional Colab Whisper worker. |
 | `COLAB_STT_TIMEOUT` | `120` | Timeout in seconds for remote Colab transcription. |
-| `STT_LANGUAGE_AUTO_OVERRIDE` | `1` in launcher scripts | Override selected language when target text strongly indicates another language. |
+| `STT_LANGUAGE_AUTO_OVERRIDE` | `0` in launcher scripts | Keep the UI-selected STT language by default. Set to `1` to override selected language when target text strongly indicates another language. |
 | `BACKEND_PORT` | `6174` | Backend port. |
 | `FRONTEND_PORT` | `6173` | Frontend port. |
 | `FRONTEND_HOST` | `127.0.0.1` | Frontend host binding. |
