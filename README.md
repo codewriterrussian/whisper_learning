@@ -247,7 +247,7 @@ If the notebook stops at `Starting Cloudflare tunnel...` and never prints a `try
 requests.get("http://127.0.0.1:7860/health").json()
 ```
 
-If local health works but no public URL appears, the issue is the Cloudflare tunnel step, not Whisper. Restarting the Colab runtime and rerunning all cells usually creates a fresh temporary tunnel.
+If local health works but no public URL appears, the issue is the Cloudflare tunnel step, not Whisper. If the notebook prints a `trycloudflare.com` URL but the public `/health` check temporarily fails with DNS or connection errors, wait 30-60 seconds and try the printed `COLAB_STT_URL` locally anyway. Quick Tunnel DNS can lag briefly after the URL is created. If it still fails locally, rerun only the tunnel cell to get a fresh temporary tunnel.
 
 ## Both Provider Mode
 
