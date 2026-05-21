@@ -288,7 +288,7 @@ def write_result(result: str, out_file: Path = OUT_FILE) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare target text against one or two STT transcripts.")
-    parser.add_argument("--stt-provider", choices=["whisper", "apple", "windows_speech", "both"], default="whisper")
+    parser.add_argument("--stt-provider", choices=["whisper", "apple", "windows_speech", "colab_whisper", "both"], default="whisper")
     parser.add_argument("--whisper-status", default="ok")
     parser.add_argument("--whisper-note", default="")
     parser.add_argument("--apple-status", default="ok")
@@ -332,12 +332,12 @@ def main() -> None:
         return
 
     transcript_raw = read_text(Path(args.transcript_file))
-    provider_labels = {"apple": "Apple Speech", "windows_speech": "Windows Speech", "whisper": "Whisper"}
+    provider_labels = {"apple": "Apple Speech", "windows_speech": "Windows Speech", "colab_whisper": "Colab Whisper", "whisper": "Whisper"}
     label = provider_labels.get(args.stt_provider, "Whisper")
     if args.stt_provider == "apple":
         provider_status = args.apple_status
         provider_note = args.apple_note
-    elif args.stt_provider == "windows_speech":
+    elif args.stt_provider in {"windows_speech", "colab_whisper"}:
         provider_status = args.native_status or args.apple_status
         provider_note = args.native_note or args.apple_note
     else:

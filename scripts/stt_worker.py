@@ -53,6 +53,16 @@ def handle_request(payload: dict[str, Any]) -> Any:
         if isinstance(whisper_provider, WhisperProvider):
             return whisper_provider.transcribe_with_retry(str(audio_path))
 
+    if provider == "colab_whisper":
+        colab_provider = get_provider(
+            "colab_whisper",
+            language=language,
+            model_name=model_name,
+            fast_mode=fast_mode,
+        )
+        if hasattr(colab_provider, "transcribe_result"):
+            return colab_provider.transcribe_result(str(audio_path))  # type: ignore[attr-defined]
+
     try:
         return {
             "status": "ok",
@@ -68,7 +78,7 @@ def handle_request(payload: dict[str, Any]) -> Any:
             "error": "",
         }
     except Exception as error:
-        if provider in {"apple", "windows_speech"}:
+        if provider in {"apple", "windows_speech", "colab_whisper"}:
             return {"status": "failed", "transcript": "", "error": str(error)}
         raise
 

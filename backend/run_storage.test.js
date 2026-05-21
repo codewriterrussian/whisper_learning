@@ -25,9 +25,11 @@ test("transcripts are saved under separate attempt folders", () => {
   assert.equal(firstPaths.whisperTranscriptPath, path.join(root, "runs", "attempt-a", "transcript.whisper.txt"));
   assert.equal(firstPaths.appleTranscriptPath, path.join(root, "runs", "attempt-a", "transcript.apple.txt"));
   assert.equal(firstPaths.windowsSpeechTranscriptPath, path.join(root, "runs", "attempt-a", "transcript.windows_speech.txt"));
+  assert.equal(firstPaths.colabWhisperTranscriptPath, path.join(root, "runs", "attempt-a", "transcript.colab_whisper.txt"));
   assert.equal(secondPaths.whisperTranscriptPath, path.join(root, "runs", "attempt-b", "transcript.whisper.txt"));
   assert.equal(secondPaths.appleTranscriptPath, path.join(root, "runs", "attempt-b", "transcript.apple.txt"));
   assert.equal(secondPaths.windowsSpeechTranscriptPath, path.join(root, "runs", "attempt-b", "transcript.windows_speech.txt"));
+  assert.equal(secondPaths.colabWhisperTranscriptPath, path.join(root, "runs", "attempt-b", "transcript.colab_whisper.txt"));
 });
 
 test("result JSON contains provider statuses and timing", () => {
@@ -47,11 +49,13 @@ test("result JSON contains provider statuses and timing", () => {
     whisperStatus: "ok",
     appleStatus: "ok",
     windowsSpeechStatus: "skipped",
+    colabWhisperStatus: "skipped",
     whisperNote: "",
     appleNote: "",
     windowsSpeechNote: "",
-    providerTranscripts: { whisper: "Dzisiaj cwicze.", apple: "Dzisiaj cwicze.", windows_speech: "" },
-    providerScores: { whisper: "100.0/100", apple: "100.0/100", windows_speech: "--" },
+    colabWhisperNote: "",
+    providerTranscripts: { whisper: "Dzisiaj cwicze.", apple: "Dzisiaj cwicze.", windows_speech: "", colab_whisper: "" },
+    providerScores: { whisper: "100.0/100", apple: "100.0/100", windows_speech: "--", colab_whisper: "--" },
     audioSimilarity: { status: "ok", timing_match: 90 },
     focusWord: "",
     teacherFeedback: "Good.",
@@ -62,8 +66,10 @@ test("result JSON contains provider statuses and timing", () => {
   assert.equal(result.providerStatuses.whisper, "ok");
   assert.equal(result.providerStatuses.apple, "ok");
   assert.equal(result.providerStatuses.windows_speech, "skipped");
+  assert.equal(result.providerStatuses.colab_whisper, "skipped");
   assert.equal(result.timingBreakdown.total, 1500);
   assert.equal(result.files.resultJson, path.join("runs", "attempt-a", "result.json"));
+  assert.equal(result.files.colabWhisperTranscript, path.join("runs", "attempt-a", "transcript.colab_whisper.txt"));
 });
 
 test("history summary can point to the correct attempt ID", () => {
@@ -83,11 +89,13 @@ test("history summary can point to the correct attempt ID", () => {
     whisperStatus: "ok",
     appleStatus: "skipped",
     windowsSpeechStatus: "skipped",
+    colabWhisperStatus: "skipped",
     whisperNote: "",
     appleNote: "",
     windowsSpeechNote: "",
-    providerTranscripts: { whisper: "Hom nay toi luyen noi.", apple: "", windows_speech: "" },
-    providerScores: { whisper: "100.0/100", apple: "--", windows_speech: "--" },
+    colabWhisperNote: "",
+    providerTranscripts: { whisper: "Hom nay toi luyen noi.", apple: "", windows_speech: "", colab_whisper: "" },
+    providerScores: { whisper: "100.0/100", apple: "--", windows_speech: "--", colab_whisper: "--" },
     audioSimilarity: { status: "ok" },
     focusWord: "",
     teacherFeedback: "Good.",
@@ -99,6 +107,7 @@ test("history summary can point to the correct attempt ID", () => {
     whisperStatus: result.providerStatuses.whisper,
     appleStatus: result.providerStatuses.apple,
     windowsSpeechStatus: result.providerStatuses.windows_speech,
+    colabWhisperStatus: result.providerStatuses.colab_whisper,
   };
 
   assert.equal(historySummary.attemptId, "attempt-history");

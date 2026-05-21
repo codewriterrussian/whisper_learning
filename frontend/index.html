@@ -68,9 +68,13 @@
               <option value="whisper" selected>Whisper only</option>
               <option value="apple">Apple Speech only</option>
               <option value="windows_speech">Windows Speech only</option>
+              <option value="colab_whisper">Colab Whisper GPU - experimental</option>
               <option value="both">Comparison - Whisper + Native STT</option>
             </select>
             <small id="sttProviderHelp" class="field-help">Whisper is default. Native STT options appear only when supported on this platform.</small>
+            <small id="remoteSttWarning" class="field-help" hidden>
+              Audio will be sent to a remote Google Colab runtime. Do not use this mode for private recordings. Free Colab GPU availability is not guaranteed and the runtime may disconnect.
+            </small>
           </label>
 
           <label class="field">

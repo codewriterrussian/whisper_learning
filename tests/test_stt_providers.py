@@ -13,7 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.compare import format_combined_result, validate_transcript  # noqa: E402
+from scripts.compare import format_combined_result, format_single_result, validate_transcript  # noqa: E402
 from scripts.audio_similarity import SAMPLE_RATE, auto_trim_audio, compare_audio  # noqa: E402
 from scripts.stt_model import (  # noqa: E402
     ALLOWED_STT_PROVIDERS,
@@ -24,7 +24,7 @@ from scripts.stt_model import (  # noqa: E402
     get_provider,
     transcribe_both,
 )
-from scripts.stt_providers import AppleSpeechProvider, WhisperProvider, WindowsSpeechProvider  # noqa: E402
+from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, WhisperProvider, WindowsSpeechProvider  # noqa: E402
 import scripts.stt_providers.whisper_provider as whisper_provider_module  # noqa: E402
 
 
@@ -47,9 +47,11 @@ class STTProviderTests(unittest.TestCase):
     def test_provider_selection(self) -> None:
         self.assertIn("both", ALLOWED_STT_PROVIDERS)
         self.assertIn("windows_speech", ALLOWED_STT_PROVIDERS)
+        self.assertIn("colab_whisper", ALLOWED_STT_PROVIDERS)
         self.assertIsInstance(get_provider("whisper"), WhisperProvider)
         self.assertIsInstance(get_provider("apple"), AppleSpeechProvider)
         self.assertIsInstance(get_provider("windows_speech"), WindowsSpeechProvider)
+        self.assertIsInstance(get_provider("colab_whisper"), ColabWhisperProvider)
 
     def test_platform_provider_availability(self) -> None:
         self.assertEqual(get_platform_key("Darwin"), "darwin")
@@ -58,9 +60,9 @@ class STTProviderTests(unittest.TestCase):
         self.assertEqual(get_native_provider_name("darwin"), "apple")
         self.assertEqual(get_native_provider_name("win32"), "windows_speech")
         self.assertIsNone(get_native_provider_name("linux"))
-        self.assertEqual(get_available_stt_providers("darwin"), ["whisper", "apple", "both"])
-        self.assertEqual(get_available_stt_providers("win32"), ["whisper", "windows_speech", "both"])
-        self.assertEqual(get_available_stt_providers("linux"), ["whisper"])
+        self.assertEqual(get_available_stt_providers("darwin"), ["whisper", "apple", "both", "colab_whisper"])
+        self.assertEqual(get_available_stt_providers("win32"), ["whisper", "windows_speech", "both", "colab_whisper"])
+        self.assertEqual(get_available_stt_providers("linux"), ["whisper", "colab_whisper"])
 
     def test_native_providers_disabled_off_platform(self) -> None:
         self.assertNotIn("apple", get_available_stt_providers("win32"))
@@ -335,6 +337,69 @@ class STTProviderTests(unittest.TestCase):
         )
 
         self.assertIn("No valid STT transcript was produced", result)
+        self.assertNotIn("- Exact-style ratio: 0.0/100", result)
+
+    def test_colab_whisper_unavailable_without_url(self) -> None:
+        provider = ColabWhisperProvider(endpoint_url="")
+        result = provider.transcribe_result("README.md")
+
+        self.assertEqual(result["provider"], "colab_whisper")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("not configured", result["error"])
+        self.assertIsNone(result["score"])
+
+    def test_failed_colab_request_does_not_score_zero(self) -> None:
+        result = format_single_result(
+            "hello world",
+            "",
+            provider_label="Colab Whisper",
+            provider_status="failed",
+            provider_note="Colab disconnected",
+        )
+
+        self.assertIn("Status:\nfailed", result)
+        self.assertIn("Similarity score:\n--", result)
+        self.assertNotIn("0.0/100", result)
+
+    def test_mocked_valid_colab_response_returns_ok(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self) -> bytes:
+                return b'{"status":"ok","transcript":"hello world","model":"large-v3-turbo","device":"cuda","timeSec":1.2}'
+
+        with tempfile.NamedTemporaryFile(suffix=".wav") as audio_file:
+            audio_file.write(b"fake audio")
+            audio_file.flush()
+            provider = ColabWhisperProvider(
+                language="en",
+                model_name="large-v3-turbo",
+                endpoint_url="https://example.test/transcribe",
+                timeout_seconds=3,
+            )
+            with patch("scripts.stt_providers.colab_whisper_provider.urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+                result = provider.transcribe_result(audio_file.name)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["transcript"], "hello world")
+        self.assertEqual(result["model"], "large-v3-turbo")
+        self.assertEqual(result["device"], "cuda")
+        self.assertTrue(urlopen.called)
+
+    def test_invalid_colab_transcript_is_marked_invalid_for_scoring(self) -> None:
+        result = format_single_result(
+            "hello world",
+            "!!!!!!!!!!!!!!!!",
+            provider_label="Colab Whisper",
+            provider_status="ok",
+        )
+
+        self.assertIn("Status:\ninvalid", result)
+        self.assertIn("Similarity score:\n--", result)
         self.assertNotIn("- Exact-style ratio: 0.0/100", result)
 
     def test_audio_similarity_failure_is_nonfatal(self) -> None:

@@ -13,11 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.stt_providers import AppleSpeechProvider, STTProvider, WhisperProvider, WindowsSpeechProvider
+from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, STTProvider, WhisperProvider, WindowsSpeechProvider
 from scripts.audio_similarity import preprocess_audio
 
 DEFAULT_STT_PROVIDER = "whisper"
-ALLOWED_STT_PROVIDERS = {"whisper", "apple", "windows_speech", "both"}
+ALLOWED_STT_PROVIDERS = {"whisper", "apple", "windows_speech", "colab_whisper", "both"}
 
 
 def get_platform_key(system_name: Optional[str] = None) -> str:
@@ -45,6 +45,8 @@ def get_native_provider_label(provider_name: Optional[str]) -> str:
         return "Apple"
     if provider_name == "windows_speech":
         return "Windows Speech"
+    if provider_name == "colab_whisper":
+        return "Colab Whisper"
     return "Native STT"
 
 
@@ -54,6 +56,7 @@ def get_available_stt_providers(platform_key: Optional[str] = None) -> list[str]
     if native_provider:
         providers.append(native_provider)
         providers.append("both")
+    providers.append("colab_whisper")
     return providers
 
 
@@ -75,6 +78,9 @@ def get_provider(
 
     if normalized_provider == "windows_speech":
         return WindowsSpeechProvider(language=language)
+
+    if normalized_provider == "colab_whisper":
+        return ColabWhisperProvider(language=language, model_name=model_name, fast_mode=fast_mode)
 
     allowed = ", ".join(sorted(ALLOWED_STT_PROVIDERS))
     raise ValueError(f"Unknown STT provider: {provider_name}. Expected one of: {allowed}")
@@ -198,7 +204,7 @@ def write_transcript_outputs(output_path: Path, stt_provider: str, transcript_re
 
     assert isinstance(transcript_result, str)
     output_path.write_text(f"{transcript_result}\n", encoding="utf-8")
-    if stt_provider in {"whisper", "apple", "windows_speech"}:
+    if stt_provider in {"whisper", "apple", "windows_speech", "colab_whisper"}:
         provider_path = output_path.with_name(f"{output_path.stem}.{stt_provider}.txt")
         provider_path.write_text(f"{transcript_result}\n", encoding="utf-8")
 

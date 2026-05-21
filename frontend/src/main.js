@@ -6,6 +6,7 @@ const languageEl = document.querySelector("#language");
 const whisperModelEl = document.querySelector("#whisperModel");
 const sttProviderEl = document.querySelector("#sttProvider");
 const sttProviderHelpEl = document.querySelector("#sttProviderHelp");
+const remoteSttWarningEl = document.querySelector("#remoteSttWarning");
 const whisperDeviceEl = document.querySelector("#whisperDevice");
 const whisperDeviceHelpEl = document.querySelector("#whisperDeviceHelp");
 const targetTextEl = document.querySelector("#targetText");
@@ -92,6 +93,7 @@ let platformConfig = {
   nativeProvider: "",
   nativeProviderLabel: "Native STT",
   defaultSttProvider: "whisper",
+  colabConfigured: false,
 };
 const MAX_ATTEMPTS = 10;
 const HISTORY_STORAGE_KEY = "whisperSpeakingPracticeHistory";
@@ -142,10 +144,16 @@ function getNativeProviderLabel(provider = platformConfig.nativeProvider) {
   if (provider === "windows_speech") {
     return "Windows Speech";
   }
+  if (provider === "colab_whisper") {
+    return "Colab Whisper";
+  }
   return platformConfig.nativeProviderLabel || "Native STT";
 }
 
 function getNativeProviderKey(result = {}) {
+  if (result.sttProvider === "colab_whisper") {
+    return "colab_whisper";
+  }
   return result.nativeProvider || platformConfig.nativeProvider || "";
 }
 
@@ -157,12 +165,21 @@ function getNativeStatus(result = {}) {
   if (nativeProvider === "windows_speech") {
     return result.windowsSpeechStatus || "skipped";
   }
+  if (nativeProvider === "colab_whisper") {
+    return result.colabWhisperStatus || "skipped";
+  }
   return "skipped";
 }
 
 function getNativeNote(result = {}) {
   const nativeProvider = getNativeProviderKey(result);
-  return nativeProvider === "windows_speech" ? result.windowsSpeechNote || "" : result.appleNote || "";
+  if (nativeProvider === "windows_speech") {
+    return result.windowsSpeechNote || "";
+  }
+  if (nativeProvider === "colab_whisper") {
+    return result.colabWhisperNote || "";
+  }
+  return result.appleNote || "";
 }
 
 function getNativeTranscript(result = {}) {
@@ -173,6 +190,9 @@ function getNativeTranscript(result = {}) {
   if (nativeProvider === "windows_speech") {
     return result.bothTranscripts?.windows_speech || (result.sttProvider === "windows_speech" ? result.transcript : "") || "";
   }
+  if (nativeProvider === "colab_whisper") {
+    return result.bothTranscripts?.colab_whisper || (result.sttProvider === "colab_whisper" ? result.transcript : "") || "";
+  }
   return result.bothTranscripts?.apple || (result.sttProvider === "apple" ? result.transcript : "") || "";
 }
 
@@ -181,7 +201,14 @@ function getNativeScore(result = {}) {
   if (nativeProvider === "windows_speech") {
     return result.bothScores?.windows_speech || "--";
   }
+  if (nativeProvider === "colab_whisper") {
+    return result.bothScores?.colab_whisper || "--";
+  }
   return result.bothScores?.apple || "--";
+}
+
+function updateRemoteSttWarning() {
+  remoteSttWarningEl.hidden = sttProviderEl.value !== "colab_whisper";
 }
 
 function isBenchmarkTarget(text) {
@@ -220,11 +247,12 @@ async function loadPlatformSettings() {
       nativeProvider: data.nativeProvider || "",
       nativeProviderLabel: getNativeProviderLabel(data.nativeProvider || ""),
       defaultSttProvider: data.defaultSttProvider || "whisper",
+      colabConfigured: Boolean(data.colabConfigured),
     };
 
     if (Array.isArray(data.sttProviders)) {
       sttProviderEl.innerHTML = data.sttProviders
-        .map((provider) => `<option value="${provider.value}">${provider.label}</option>`)
+        .map((provider) => `<option value="${provider.value}" ${provider.available === false ? "disabled" : ""}>${provider.label}${provider.available === false ? " (not configured)" : ""}</option>`)
         .join("");
       sttProviderEl.value = data.defaultSttProvider || "whisper";
     }
@@ -239,12 +267,17 @@ async function loadPlatformSettings() {
     sttProviderHelpEl.textContent = platformConfig.nativeProvider
       ? `Whisper is default. ${platformConfig.nativeProviderLabel} is experimental and platform-native.`
       : "Whisper is default. No native comparison provider is available on this platform.";
+    if (data.colabConfigured) {
+      sttProviderHelpEl.textContent += " Colab Whisper is configured as an optional remote GPU provider.";
+    }
+    updateRemoteSttWarning();
     whisperDeviceHelpEl.textContent = platformConfig.platform === "darwin"
       ? "Auto uses MPS on Apple Silicon when available, otherwise CPU."
       : "Auto uses CUDA when available, otherwise CPU. MPS is never selected outside macOS.";
   } catch (_error) {
     sttProviderEl.value = "whisper";
     sttProviderHelpEl.textContent = "Whisper is default. Platform settings could not be loaded.";
+    updateRemoteSttWarning();
   }
 }
 
@@ -330,10 +363,11 @@ function stopProgressTimers() {
 
 function startCheckingProgress(sttProvider) {
   stopProgressTimers();
-  const nativeEnabled = sttProvider === platformConfig.nativeProvider || sttProvider === "both";
+  const nativeEnabled = sttProvider === platformConfig.nativeProvider || sttProvider === "both" || sttProvider === "colab_whisper";
+  const providerLabel = sttProvider === "colab_whisper" ? "Colab Whisper GPU" : getNativeProviderLabel();
   progressSteps = CHECKING_STEP_DEFINITIONS.map((step) => ({
     ...step,
-    label: step.id === "native" ? `Running ${getNativeProviderLabel()} STT` : step.label,
+    label: step.id === "native" ? `Running ${providerLabel} STT` : step.label,
     status: step.id === "native" && !nativeEnabled ? "skipped" : "waiting",
     note: step.id === "native" && !nativeEnabled ? "skipped" : "waiting",
   }));
@@ -886,7 +920,7 @@ function getWordAccuracySummary(result) {
     return `Whisper ${whisperScore.replace(/^Whisper /, "")} · ${nativeLabel} ${nativeScore.replace(new RegExp(`^${nativeLabel} `), "")}`;
   }
 
-  const isNativeOnly = result.sttProvider === "apple" || result.sttProvider === "windows_speech";
+  const isNativeOnly = result.sttProvider === "apple" || result.sttProvider === "windows_speech" || result.sttProvider === "colab_whisper";
   const providerName = isNativeOnly ? getNativeProviderLabel(result.sttProvider) : "Whisper";
   const providerStatus = isNativeOnly ? getNativeStatus({ ...result, nativeProvider: result.sttProvider }) : result.whisperStatus || "ok";
   const score = getProviderDisplayScore(providerName, result.overallScore, result.transcript, providerStatus);
@@ -918,6 +952,9 @@ function getWordAccuracyValue(result) {
   }
   if (result.bothScores?.windows_speech && isProviderUsable(result.windowsSpeechStatus)) {
     return getScoreValue(result.bothScores.windows_speech);
+  }
+  if (result.bothScores?.colab_whisper && isProviderUsable(result.colabWhisperStatus)) {
+    return getScoreValue(result.bothScores.colab_whisper);
   }
   return getScoreValue(result.overallScore);
 }
@@ -987,6 +1024,8 @@ function getResultFocusPractice(result) {
     appleStatus: result.appleStatus,
     windowsSpeechTranscript: isProviderUsable(result.windowsSpeechStatus) ? result.bothTranscripts?.windows_speech || (result.sttProvider === "windows_speech" ? result.transcript : "") || "" : "",
     windowsSpeechStatus: result.windowsSpeechStatus,
+    colabWhisperTranscript: isProviderUsable(result.colabWhisperStatus) ? result.bothTranscripts?.colab_whisper || (result.sttProvider === "colab_whisper" ? result.transcript : "") || "" : "",
+    colabWhisperStatus: result.colabWhisperStatus,
     nativeProvider: getNativeProviderKey(result),
     nativeProviderLabel: getNativeProviderLabel(getNativeProviderKey(result)),
   });
@@ -1001,6 +1040,9 @@ function getPrimaryValidTranscript(result) {
   }
   if (isProviderUsable(result.windowsSpeechStatus)) {
     return result.bothTranscripts?.windows_speech || result.transcript || "";
+  }
+  if (isProviderUsable(result.colabWhisperStatus)) {
+    return result.bothTranscripts?.colab_whisper || result.transcript || "";
   }
   return "";
 }
@@ -1022,6 +1064,7 @@ function savePracticeHistory(result) {
         whisperStatus: result.whisperStatus,
         appleStatus: result.appleStatus,
         windowsSpeechStatus: result.windowsSpeechStatus,
+        colabWhisperStatus: result.colabWhisperStatus,
         nativeProvider: getNativeProviderKey(result),
       },
     };
@@ -1207,10 +1250,10 @@ function getTargetWordSegments(targetText) {
 
 function getFocusPractice(targetText, transcriptText, providerContext = {}) {
   const whisperTranscript = providerContext.whisperTranscript ?? transcriptText;
-  const nativeTranscript = providerContext.appleTranscript || providerContext.windowsSpeechTranscript || "";
+  const nativeTranscript = providerContext.appleTranscript || providerContext.windowsSpeechTranscript || providerContext.colabWhisperTranscript || "";
   const nativeLabel = providerContext.nativeProviderLabel || getNativeProviderLabel(providerContext.nativeProvider);
   const whisperAvailable = (providerContext.whisperStatus ? isProviderUsable(providerContext.whisperStatus) : true) && whisperTranscript.trim();
-  const nativeStatus = providerContext.windowsSpeechStatus || providerContext.appleStatus;
+  const nativeStatus = providerContext.windowsSpeechStatus || providerContext.appleStatus || providerContext.colabWhisperStatus;
   const nativeAvailable = isProviderUsable(nativeStatus) && nativeTranscript.trim();
   const whisperIssues = whisperAvailable ? getWordPracticeTokens(targetText, whisperTranscript) : [];
   const nativeIssues = nativeAvailable ? getWordPracticeTokens(targetText, nativeTranscript) : [];
@@ -1938,37 +1981,44 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
   const transcript = (data.transcript || "").trim();
   const bothScores = data.scores || null;
   const bothTranscripts = data.transcripts || null;
-  const nativeProvider = data.nativeProvider || platformConfig.nativeProvider || (data.sttProvider === "windows_speech" ? "windows_speech" : data.sttProvider === "apple" ? "apple" : "");
+  const nativeProvider = data.nativeProvider || platformConfig.nativeProvider || (data.sttProvider === "windows_speech" ? "windows_speech" : data.sttProvider === "apple" ? "apple" : data.sttProvider === "colab_whisper" ? "colab_whisper" : "");
   const overallScore = getOverallScore(comparison);
   const scoreValue = getScoreValue(overallScore);
   const scoreLabel = getScoreLabel(scoreValue);
   const targetText = data.targetText || getSection(comparison, "Target sentence") || "";
-  const rawWhisperTranscript = bothTranscripts?.whisper || (data.sttProvider !== "apple" && data.sttProvider !== "windows_speech" ? transcript : "");
+  const rawWhisperTranscript = bothTranscripts?.whisper || (data.sttProvider !== "apple" && data.sttProvider !== "windows_speech" && data.sttProvider !== "colab_whisper" ? transcript : "");
   const rawAppleTranscript = bothTranscripts?.apple || (data.sttProvider === "apple" ? transcript : "");
   const rawWindowsSpeechTranscript = bothTranscripts?.windows_speech || (data.sttProvider === "windows_speech" ? transcript : "");
-  const initialWhisperStatus = data.whisperStatus || (data.sttProvider === "apple" || data.sttProvider === "windows_speech" ? "skipped" : "ok");
+  const rawColabWhisperTranscript = bothTranscripts?.colab_whisper || (data.sttProvider === "colab_whisper" ? transcript : "");
+  const initialWhisperStatus = data.whisperStatus || (data.sttProvider === "apple" || data.sttProvider === "windows_speech" || data.sttProvider === "colab_whisper" ? "skipped" : "ok");
   const initialAppleStatus = data.appleStatus || (data.sttProvider === "apple" ? "ok" : "skipped");
   const initialWindowsSpeechStatus = data.windowsSpeechStatus || (data.sttProvider === "windows_speech" ? "ok" : "skipped");
+  const initialColabWhisperStatus = data.colabWhisperStatus || (data.sttProvider === "colab_whisper" ? "ok" : "skipped");
   const checkedWhisper = normalizeProviderStatus(initialWhisperStatus, rawWhisperTranscript, data.whisperNote || "");
   const checkedApple = normalizeProviderStatus(initialAppleStatus, rawAppleTranscript, data.appleNote || "");
   const checkedWindowsSpeech = normalizeProviderStatus(initialWindowsSpeechStatus, rawWindowsSpeechTranscript, data.windowsSpeechNote || "");
+  const checkedColabWhisper = normalizeProviderStatus(initialColabWhisperStatus, rawColabWhisperTranscript, data.colabWhisperNote || "");
   const whisperStatus = checkedWhisper.status;
   const whisperNote = checkedWhisper.note;
   const appleStatus = checkedApple.status;
   const appleNote = checkedApple.note;
   const windowsSpeechStatus = checkedWindowsSpeech.status;
   const windowsSpeechNote = checkedWindowsSpeech.note;
+  const colabWhisperStatus = checkedColabWhisper.status;
+  const colabWhisperNote = checkedColabWhisper.note;
   const whisperTranscript = isProviderUsable(whisperStatus) ? rawWhisperTranscript : "";
   const appleTranscript = isProviderUsable(appleStatus) ? rawAppleTranscript : "";
   const windowsSpeechTranscript = isProviderUsable(windowsSpeechStatus) ? rawWindowsSpeechTranscript : "";
+  const colabWhisperTranscript = isProviderUsable(colabWhisperStatus) ? rawColabWhisperTranscript : "";
   const sanitizedBothTranscripts = bothTranscripts
     ? {
       whisper: whisperTranscript,
       apple: appleTranscript,
       windows_speech: windowsSpeechTranscript,
+      colab_whisper: colabWhisperTranscript,
     }
     : null;
-  const primaryTranscript = whisperTranscript || appleTranscript || windowsSpeechTranscript || "";
+  const primaryTranscript = whisperTranscript || appleTranscript || windowsSpeechTranscript || colabWhisperTranscript || "";
   const invalidMessage = "No valid STT transcript was produced. Please check microphone volume or record again.";
   const feedback = primaryTranscript
     ? getSection(comparison, "Feedback") || "Review the transcript and try again."
@@ -1985,6 +2035,8 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
       appleStatus,
       windowsSpeechTranscript,
       windowsSpeechStatus,
+      colabWhisperTranscript,
+      colabWhisperStatus,
       nativeProvider,
       nativeProviderLabel: getNativeProviderLabel(nativeProvider),
     })
@@ -2023,6 +2075,8 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
     appleNote,
     windowsSpeechStatus,
     windowsSpeechNote,
+    colabWhisperStatus,
+    colabWhisperNote,
     comparison,
     overallScore,
     scoreValue,
@@ -2079,7 +2133,7 @@ function renderResults(result) {
   const nativeLabel = getNativeProviderLabel(nativeProvider);
   const nativeStatus = getNativeStatus(result);
   const nativeNote = getNativeNote(result);
-  if (result.bothTranscripts || result.sttProvider === "apple" || result.sttProvider === "windows_speech") {
+  if (result.bothTranscripts || result.sttProvider === "apple" || result.sttProvider === "windows_speech" || result.sttProvider === "colab_whisper") {
     appleTranscriptCardEl.hidden = false;
     nativeTranscriptLabelEl.textContent = `${nativeLabel} STT transcript`;
     if (isProviderUsable(nativeStatus)) {
@@ -2588,6 +2642,7 @@ exportReportBtn.addEventListener("click", () => {
     whisperTranscript: isProviderUsable(displayedResult.whisperStatus) ? displayedResult.bothTranscripts?.whisper || displayedResult.transcript || "" : "",
     appleTranscript: isProviderUsable(displayedResult.appleStatus) ? displayedResult.bothTranscripts?.apple || (displayedResult.sttProvider === "apple" ? displayedResult.transcript : "") || "" : "",
     windowsSpeechTranscript: isProviderUsable(displayedResult.windowsSpeechStatus) ? displayedResult.bothTranscripts?.windows_speech || (displayedResult.sttProvider === "windows_speech" ? displayedResult.transcript : "") || "" : "",
+    colabWhisperTranscript: isProviderUsable(displayedResult.colabWhisperStatus) ? displayedResult.bothTranscripts?.colab_whisper || (displayedResult.sttProvider === "colab_whisper" ? displayedResult.transcript : "") || "" : "",
     nativeProvider: getNativeProviderKey(displayedResult),
     nativeTranscript: isProviderUsable(getNativeStatus(displayedResult)) ? getNativeTranscript(displayedResult) : "",
     wordAccuracy: getWordAccuracySummary(displayedResult),
@@ -2602,6 +2657,8 @@ exportReportBtn.addEventListener("click", () => {
     appleNote: displayedResult.appleNote || "",
     windowsSpeechStatus: displayedResult.windowsSpeechStatus || "",
     windowsSpeechNote: displayedResult.windowsSpeechNote || "",
+    colabWhisperStatus: displayedResult.colabWhisperStatus || "",
+    colabWhisperNote: displayedResult.colabWhisperNote || "",
     audioSimilarity: displayedResult.audioSimilarity || null,
     metrics: displayedResult.metrics || null,
     canonicalResult: displayedResult.resultJson || null,
@@ -2616,6 +2673,8 @@ exportReportBtn.addEventListener("click", () => {
   link.click();
   URL.revokeObjectURL(url);
 });
+
+sttProviderEl.addEventListener("change", updateRemoteSttWarning);
 
 setStopVisible(false);
 setCancelVisible(false);

@@ -19,7 +19,7 @@ const DEFAULT_WHISPER_MODEL = "large";
 const ALLOWED_LANGUAGES = new Set(["en", "de", "nl", "pl", "ru", "ja", "vi", "zh"]);
 const ALLOWED_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo"]);
 const ALLOWED_WHISPER_DEVICES = new Set(["auto", "cpu", "mps", "cuda"]);
-const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "windows_speech", "both"]);
+const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "windows_speech", "colab_whisper", "both"]);
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 25) * 1024 * 1024;
 const ALLOWED_AUDIO_EXTENSIONS = new Set([".webm", ".wav", ".m4a", ".mp3", ".ogg"]);
 const ALLOWED_AUDIO_MIME_PREFIXES = ["audio/"];
@@ -122,7 +122,14 @@ function getProviderLabel(provider) {
   if (provider === "whisper") {
     return "Whisper";
   }
+  if (provider === "colab_whisper") {
+    return "Colab Whisper";
+  }
   return "Native STT";
+}
+
+function isColabConfigured() {
+  return Boolean((process.env.COLAB_STT_URL || "").trim());
 }
 
 function getSttProviderOptions() {
@@ -138,6 +145,14 @@ function getSttProviderOptions() {
     providers.push({ value: "windows_speech", label: "Windows Speech only - experimental", available: true });
     providers.push({ value: "both", label: "Comparison - Whisper + Windows Speech", available: true });
   }
+  providers.push({
+    value: "colab_whisper",
+    label: "Colab Whisper GPU - experimental",
+    available: isColabConfigured(),
+    warning: isColabConfigured()
+      ? "Audio will be sent to a remote Google Colab runtime. Free Colab GPU availability is not guaranteed."
+      : "Colab Whisper is not configured. Set COLAB_STT_URL to enable it.",
+  });
 
   return providers;
 }
@@ -210,6 +225,9 @@ function normalizeSttProvider(provider) {
   }
   if (provider === "windows_speech" && nativeProvider !== "windows_speech") {
     return DEFAULT_STT_PROVIDER;
+  }
+  if (provider === "colab_whisper") {
+    return provider;
   }
   if (provider === "both" && !nativeProvider) {
     return DEFAULT_STT_PROVIDER;
@@ -493,6 +511,9 @@ function writeTranscriptOutputs(transcriptPath, sttProvider, transcriptResult) {
   if (sttProvider === "windows_speech") {
     fs.writeFileSync(`${stem}.windows_speech${extension}`, `${transcript}\n`, "utf8");
   }
+  if (sttProvider === "colab_whisper") {
+    fs.writeFileSync(`${stem}.colab_whisper${extension}`, `${transcript}\n`, "utf8");
+  }
 }
 
 function nowMs() {
@@ -521,7 +542,7 @@ function getValidProviderScore(comparison, providerName, status) {
   return status === "ok" || status === "ok_retry" ? getProviderScore(comparison, providerName) : "--";
 }
 
-function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript }) {
+function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript, colabWhisperStatus, colabWhisperTranscript }) {
   if (whisperStatus === "ok" || whisperStatus === "ok_retry") {
     return whisperTranscript;
   }
@@ -530,6 +551,9 @@ function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, a
   }
   if (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") {
     return windowsSpeechTranscript;
+  }
+  if (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") {
+    return colabWhisperTranscript;
   }
   return "";
 }
@@ -601,6 +625,8 @@ app.get("/api/bootstrap", (_req, res) => {
     platform: getPlatformKey(),
     arch: process.arch,
     nativeProvider: getNativeProvider(),
+    colabConfigured: isColabConfigured(),
+    colabTimeoutSec: Number(process.env.COLAB_STT_TIMEOUT || 120),
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     sttProviders: getSttProviderOptions(),
     whisperDevices: getDeviceOptions(),
@@ -696,7 +722,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     let language = normalizeLanguage(req.body.language);
     const sttProvider = normalizeSttProvider(req.body.sttProvider);
     const nativeProvider = getNativeProvider();
-    const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "windows_speech" ? sttProvider : "");
+    const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? sttProvider : "");
     const nativeProviderLabel = getProviderLabel(activeNativeProvider || nativeProvider);
     const whisperModel = normalizeWhisperModel(req.body.whisperModel);
     const whisperDevice = normalizeWhisperDevice(req.body.whisperDevice);
@@ -792,16 +818,19 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
 
     let transcript = typeof transcriptResult === "string" ? transcriptResult.trim() : (transcriptResult?.transcript || "");
     let providerResults = null;
-    let whisperStatus = sttProvider === "apple" || sttProvider === "windows_speech" ? "skipped" : (transcriptResult?.status || "ok");
+    let whisperStatus = sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? "skipped" : (transcriptResult?.status || "ok");
     let whisperNote = transcriptResult?.error || "";
     let whisperRecovered = Boolean(transcriptResult?.recovered);
     let appleStatus = sttProvider === "apple" ? (transcriptResult?.status || "ok") : "skipped";
     let appleNote = sttProvider === "apple" ? (transcriptResult?.error || "") : "";
     let windowsSpeechStatus = sttProvider === "windows_speech" ? (transcriptResult?.status || "ok") : "skipped";
     let windowsSpeechNote = sttProvider === "windows_speech" ? (transcriptResult?.error || "") : "";
-    let whisperTranscript = sttProvider === "apple" || sttProvider === "windows_speech" ? "" : transcript;
+    let colabWhisperStatus = sttProvider === "colab_whisper" ? (transcriptResult?.status || "ok") : "skipped";
+    let colabWhisperNote = sttProvider === "colab_whisper" ? (transcriptResult?.error || "") : "";
+    let whisperTranscript = sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? "" : transcript;
     let appleTranscript = sttProvider === "apple" ? transcript : "";
     let windowsSpeechTranscript = sttProvider === "windows_speech" ? transcript : "";
+    let colabWhisperTranscript = sttProvider === "colab_whisper" ? transcript : "";
 
     if (sttProvider === "both") {
       providerResults = transcriptResult;
@@ -838,6 +867,9 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const checkedWindowsSpeech = applyTranscriptValidation("Windows Speech", windowsSpeechStatus, windowsSpeechTranscript, windowsSpeechNote);
     windowsSpeechStatus = checkedWindowsSpeech.status;
     windowsSpeechNote = checkedWindowsSpeech.note;
+    const checkedColabWhisper = applyTranscriptValidation("Colab Whisper", colabWhisperStatus, colabWhisperTranscript, colabWhisperNote);
+    colabWhisperStatus = checkedColabWhisper.status;
+    colabWhisperNote = checkedColabWhisper.note;
 
     if (whisperStatus === "ok" || whisperStatus === "ok_retry") {
       transcript = whisperTranscript;
@@ -845,6 +877,8 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       transcript = appleTranscript;
     } else if (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") {
       transcript = windowsSpeechTranscript;
+    } else if (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") {
+      transcript = colabWhisperTranscript;
     } else {
       transcript = "";
     }
@@ -892,11 +926,11 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         "--apple-note",
         appleNote,
         "--native-provider-name",
-        activeNativeProvider === "windows_speech" ? "Windows Speech" : "Apple",
+        activeNativeProvider === "windows_speech" ? "Windows Speech" : activeNativeProvider === "colab_whisper" ? "Colab Whisper" : "Apple",
         "--native-status",
-        activeNativeProvider === "windows_speech" ? windowsSpeechStatus : appleStatus,
+        activeNativeProvider === "windows_speech" ? windowsSpeechStatus : activeNativeProvider === "colab_whisper" ? colabWhisperStatus : appleStatus,
         "--native-note",
-        activeNativeProvider === "windows_speech" ? windowsSpeechNote : appleNote,
+        activeNativeProvider === "windows_speech" ? windowsSpeechNote : activeNativeProvider === "colab_whisper" ? colabWhisperNote : appleNote,
         "--target-file",
         toRootRelative(targetPath),
         "--transcript-file",
@@ -906,7 +940,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         "--apple-transcript-file",
         toRootRelative(runPaths.appleTranscriptPath),
         "--native-transcript-file",
-        toRootRelative(activeNativeProvider === "windows_speech" ? runPaths.windowsSpeechTranscriptPath : runPaths.appleTranscriptPath),
+        toRootRelative(activeNativeProvider === "windows_speech" ? runPaths.windowsSpeechTranscriptPath : activeNativeProvider === "colab_whisper" ? runPaths.colabWhisperTranscriptPath : runPaths.appleTranscriptPath),
         "--out-file",
         toRootRelative(comparisonPath),
       ];
@@ -927,24 +961,28 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
           whisper: whisperStatus === "ok" || whisperStatus === "ok_retry" ? whisperTranscript : "",
           apple: appleStatus === "ok" || appleStatus === "ok_retry" ? appleTranscript : "",
           windows_speech: windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry" ? windowsSpeechTranscript : "",
+          colab_whisper: colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry" ? colabWhisperTranscript : "",
         }
       : {
           whisper: sttProvider === "whisper" && (whisperStatus === "ok" || whisperStatus === "ok_retry") ? whisperTranscript : "",
           apple: sttProvider === "apple" && (appleStatus === "ok" || appleStatus === "ok_retry") ? appleTranscript : "",
           windows_speech: sttProvider === "windows_speech" && (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") ? windowsSpeechTranscript : "",
+          colab_whisper: sttProvider === "colab_whisper" && (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") ? colabWhisperTranscript : "",
         };
     const providerScores = providerResults
       ? {
           whisper: getValidProviderScore(comparison, "Whisper", whisperStatus),
           apple: getValidProviderScore(comparison, "Apple", appleStatus),
           windows_speech: getValidProviderScore(comparison, "Windows Speech", windowsSpeechStatus),
+          colab_whisper: getValidProviderScore(comparison, "Colab Whisper", colabWhisperStatus),
         }
       : {
           whisper: sttProvider === "whisper" ? getValidProviderScore(comparison, "Whisper", whisperStatus) : "--",
           apple: sttProvider === "apple" ? getValidProviderScore(comparison, "Apple Speech", appleStatus) : "--",
           windows_speech: sttProvider === "windows_speech" ? getValidProviderScore(comparison, "Windows Speech", windowsSpeechStatus) : "--",
+          colab_whisper: sttProvider === "colab_whisper" ? getValidProviderScore(comparison, "Colab Whisper", colabWhisperStatus) : "--",
         };
-    const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript }));
+    const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript, colabWhisperStatus, colabWhisperTranscript }));
     const teacherFeedback = buildTeacherFeedbackSummary(comparison, focusWord, audioSimilarity);
     const resultJson = buildCanonicalResult({
       root: ROOT,
@@ -960,9 +998,11 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       whisperStatus,
       appleStatus,
       windowsSpeechStatus,
+      colabWhisperStatus,
       whisperNote,
       appleNote,
       windowsSpeechNote,
+      colabWhisperNote,
       providerTranscripts,
       providerScores,
       audioSimilarity,
@@ -994,6 +1034,8 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       appleNote,
       windowsSpeechStatus,
       windowsSpeechNote,
+      colabWhisperStatus,
+      colabWhisperNote,
       nativeProvider: activeNativeProvider,
       nativeProviderLabel,
       audioSimilarity,

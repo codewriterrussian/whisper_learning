@@ -7,6 +7,7 @@ Whisper is the default and recommended STT provider on every platform. Native sy
 - macOS: Apple Speech
 - Windows: Windows Speech
 - Linux: Whisper only
+- Optional remote comparison: Google Colab GPU Whisper worker
 
 ## Setup
 
@@ -84,6 +85,7 @@ runs/<attemptId>/transcript.txt
 runs/<attemptId>/transcript.whisper.txt
 runs/<attemptId>/transcript.apple.txt
 runs/<attemptId>/transcript.windows_speech.txt
+runs/<attemptId>/transcript.colab_whisper.txt
 runs/<attemptId>/comparison.txt
 runs/<attemptId>/result.json
 ```
@@ -162,6 +164,13 @@ Linux:
 - `auto` prefers CUDA when available
 - Native Apple/Windows STT options are hidden
 
+Optional Colab:
+
+- Provider: Colab Whisper GPU - experimental
+- Available on any local platform only when `COLAB_STT_URL` is configured
+- Sends audio to your remote Colab runtime for Whisper transcription only
+- Local app still handles recording, trimming, scoring, result JSON, history, and report export
+
 MPS is never selected outside macOS. Native STT failures are reported with statuses such as `failed`, `unavailable`, `invalid`, or `skipped`; they are not shown as `0.0/100`.
 
 ## Apple Speech STT
@@ -186,6 +195,50 @@ python scripts/stt_model.py recordings/my_recording.wav `
   --output transcripts/my_recording.txt
 ```
 
+## Optional Google Colab GPU Whisper Worker
+
+Colab Whisper is experimental and remote. The local app remains the default and recommended workflow. Use Colab only when you want to compare or speed up Whisper transcription with a temporary remote GPU runtime.
+
+Audio is uploaded to the Colab runtime. Do not use this mode for private or sensitive recordings. Free Colab GPU availability is not guaranteed, sessions can disconnect, and the public URL changes each session.
+
+GitHub-friendly Colab link placeholder:
+
+```text
+https://colab.research.google.com/github/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>/blob/main/notebooks/colab_whisper_worker.ipynb
+```
+
+Steps:
+
+1. Open `notebooks/colab_whisper_worker.ipynb` in Google Colab.
+2. Enable a GPU runtime.
+3. Run all cells.
+4. Copy the printed `/transcribe` public URL.
+5. Set `COLAB_STT_URL` locally.
+6. Start the local web app.
+7. Open Advanced STT settings and choose `Colab Whisper GPU - experimental`.
+
+macOS/Linux:
+
+```bash
+export COLAB_STT_URL="https://xxxxx/transcribe"
+./run_web_app.sh
+```
+
+Windows PowerShell:
+
+```powershell
+$env:COLAB_STT_URL="https://xxxxx/transcribe"
+.\run_web_app.ps1
+```
+
+Optional timeout override:
+
+```bash
+export COLAB_STT_TIMEOUT=120
+```
+
+The Colab worker endpoint accepts multipart audio plus optional `language`, `model`, and `fastMode` fields. It returns JSON with `status`, `transcript`, `model`, `device`, and `timeSec`. If the worker is missing, disconnected, times out, or returns invalid JSON, the app marks Colab Whisper as unavailable/failed and does not show a fake `0.0/100`.
+
 ## Both Provider Mode
 
 On platforms with a native provider, `both` checks the same recording with Whisper and native STT in parallel:
@@ -205,6 +258,7 @@ Outputs are provider-specific:
 transcripts/my_recording.whisper.txt
 transcripts/my_recording.apple.txt
 transcripts/my_recording.windows_speech.txt
+transcripts/my_recording.colab_whisper.txt
 ```
 
 The web app stores each checked recording under:
@@ -230,6 +284,8 @@ Common environment variables:
 | `WHISPER_DEVICE` | `auto` | Whisper device: `auto`, `cpu`, `mps`, or `cuda`. |
 | `WHISPER_WARMUP` | `1` in launcher scripts | Preload the Whisper model on backend startup. |
 | `WHISPER_RETRY_DEVICE` | `same` | Use `same` or `cpu` for safer retry after invalid Whisper output. |
+| `COLAB_STT_URL` | unset | Public `/transcribe` URL from the optional Colab Whisper worker. |
+| `COLAB_STT_TIMEOUT` | `120` | Timeout in seconds for remote Colab transcription. |
 | `STT_LANGUAGE_AUTO_OVERRIDE` | unset | Set to `1` to override selected language when target text strongly indicates another language. |
 | `BACKEND_PORT` | `6174` | Backend port. |
 | `FRONTEND_PORT` | `6173` | Frontend port. |
@@ -329,6 +385,7 @@ Browser points to the wrong backend URL:
 - STT scores measure whether an STT engine understood the words; they are not a complete pronunciation diagnosis.
 - Apple Speech and Windows Speech are experimental comparison providers.
 - Windows Speech depends on installed Windows recognizers for the target locale.
+- Colab Whisper is remote and experimental; audio leaves your computer when enabled.
 - Docker is not currently a supported release target. Apple Speech and MPS should not be expected to work inside Docker.
 - Browser and microphone behavior vary by OS and browser; use `MANUAL_QA.md` before publishing a release.
 
