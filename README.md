@@ -204,7 +204,7 @@ Audio is uploaded to the Colab runtime. Do not use this mode for private or sens
 GitHub-friendly Colab link placeholder:
 
 ```text
-https://colab.research.google.com/github/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>/blob/main/notebooks/colab_whisper_worker.ipynb
+https://colab.research.google.com/github/codewriterrussian/whisper_learning_private/blob/cross-platform-native-stt/notebooks/colab_whisper_worker.ipynb
 ```
 
 Steps:
