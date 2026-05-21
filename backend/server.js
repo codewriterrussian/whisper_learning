@@ -14,6 +14,7 @@ const ROOT = path.resolve(__dirname, "..");
 const PORT = process.env.PORT || 6174;
 const PYTHON = process.env.PYTHON || "python";
 const EDGE_TTS_PYTHON = process.env.EDGE_TTS_PYTHON || PYTHON;
+const DEFAULT_STT_PROVIDER = "whisper";
 const DEFAULT_WHISPER_MODEL = "large";
 const ALLOWED_LANGUAGES = new Set(["en", "de", "nl", "pl", "ru", "ja", "vi", "zh"]);
 const ALLOWED_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo"]);
