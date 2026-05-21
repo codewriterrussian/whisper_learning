@@ -1,68 +1,128 @@
 # Whisper Speaking Practice
 
-This folder follows `/Users/bladeruuner/PycharmProjects/whisper_speaking_practice_workflow.md`.
+A local-first pronunciation practice app for listening to model audio, recording attempts, checking speech-to-text transcripts, scoring word accuracy, and reviewing fluency/timing feedback. This release is a source-based local tool, not a hosted production service.
+
+Whisper is the default and recommended STT provider on every platform. Native system STT is optional and experimental:
+
+- macOS: Apple Speech
+- Windows: Windows Speech
+- Linux: Whisper only
 
 ## Setup
 
-Your existing `stt_whisper` Conda env has Whisper and RapidFuzz. I installed `edge-tts` there too, so use:
+Requirements:
+
+- Python 3.10 or 3.11 recommended.
+- Node.js 20 or newer recommended.
+- `ffmpeg` available on `PATH`.
+- Disk space for Whisper models. Approximate download sizes: `medium` ~1.5 GB, `large` / `large-v3` ~3 GB, `large-v3-turbo` ~1.5 GB.
+
+Create a Python environment and install the Python dependencies:
 
 ```bash
-cd /Users/bladeruuner/PycharmProjects/whisper_learning
-conda activate stt_whisper
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
 ```
 
-If you ever rebuild the environment from scratch:
+Install JavaScript dependencies:
 
 ```bash
-conda create -n speaking-practice python=3.10 -y
-conda activate speaking-practice
-pip install -U openai-whisper edge-tts rapidfuzz
+npm --prefix backend install
+npm --prefix frontend install
+```
+
+Install `ffmpeg`:
+
+```bash
+# macOS
 brew install ffmpeg
+
+# Windows
+winget install Gyan.FFmpeg
+
+# Ubuntu/Debian Linux
+sudo apt update
+sudo apt install ffmpeg
 ```
 
-Check tools:
+## Run The Web App
+
+macOS/Linux:
 
 ```bash
-whisper --help
-edge-tts --help
-ffmpeg -version
+./run_web_app.sh
 ```
 
-## STT providers
+Windows PowerShell:
 
-Whisper remains the primary speech-to-text provider. The web app defaults to `both` so one recording is checked by Whisper and Apple Speech when available. Apple Speech is experimental and macOS-only.
+```powershell
+.\run_web_app.ps1
+```
 
-### Whisper STT
+Open:
 
-Use Whisper directly through the repo wrapper:
+```text
+http://localhost:6173
+```
+
+The backend runs on `http://localhost:6174`.
+
+## Privacy And Local Data
+
+Recordings are processed locally by the backend running on your machine. The app does not upload recordings to a hosted server by default. Browser recordings are saved in your browser storage for the local practice history, and backend run artifacts are saved under `runs/<attemptId>/`.
+
+Each web check may create:
+
+```text
+runs/<attemptId>/original.webm
+runs/<attemptId>/input.wav
+runs/<attemptId>/input.auto_trimmed.wav
+runs/<attemptId>/target.txt
+runs/<attemptId>/transcript.txt
+runs/<attemptId>/transcript.whisper.txt
+runs/<attemptId>/transcript.apple.txt
+runs/<attemptId>/transcript.windows_speech.txt
+runs/<attemptId>/comparison.txt
+runs/<attemptId>/result.json
+```
+
+To clear local generated files and browser history, use the `Clear history and local runs` button in the Practice history panel. You can also run:
+
+```bash
+./scripts/clear_local_data.sh
+```
+
+On Windows:
+
+```powershell
+.\scripts\clear_local_data.ps1
+```
+
+## Whisper STT
+
+Whisper remains the default provider. The default model is `large` because it is more reliable for Polish and multilingual speaking practice. `medium` is still available as a faster rough-check mode, and `large-v3-turbo` can be selected when your Whisper install supports it.
+
+CLI example:
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider whisper \
-  --language en \
+  --language pl \
   --model large \
   --device auto \
   --fast-mode \
   --output transcripts/my_recording.txt
 ```
 
-The shell helper defaults to Whisper:
+Shell helper:
 
 ```bash
-./scripts/transcribe.sh recordings/my_recording.wav transcripts --language en --model large --device auto --fast-mode
+./scripts/transcribe.sh recordings/my_recording.wav transcripts --language pl --model large --device auto
 ```
 
-The student-facing app shows two check modes:
-
-```text
-Strict Check - Large
-Fast Strict - Large Turbo
-Practice Check - Medium
-```
-
-`large` is the normal default for every language because it is more reliable for Polish and multilingual pronunciation practice. `large-v3-turbo` is available as a faster strict option when supported by your Whisper install. `medium` remains available only as a faster rough check when you need quicker feedback and can accept less stable transcripts. Developer-only Whisper model names such as `tiny`, `base`, `small`, `large-v3`, and `turbo` are still accepted by the backend/CLI when explicitly passed.
-
-`--fast-mode` is enabled by default. It uses faster decoding settings for short sentence recordings:
+Fast mode is enabled by default for short practice recordings:
 
 ```text
 beam_size=1
@@ -72,17 +132,41 @@ condition_on_previous_text=False
 word_timestamps=False
 ```
 
-When a practice language is selected, it is passed directly to Whisper to avoid language auto-detection mistakes. Input audio is converted to reusable 16 kHz mono wav before STT; reruns reuse the converted wav when it is newer than the source audio. Device can be `auto`, `mps`, or `cpu`.
-
-The web backend uses a long-lived STT worker so the selected Whisper model is cached by model name and device instead of reloading for every checked recording. To preload Large during backend startup:
+Whisper models are cached by model name and device in the long-lived STT worker. To preload the model when the backend starts:
 
 ```bash
 WHISPER_WARMUP=1 ./run_web_app.sh
 ```
 
-### Apple Speech STT
+If `large-v3-turbo` is not supported by your installed `openai-whisper` package, choose `Strict Check - Large` or update Whisper. The backend returns a clear model-load error instead of silently falling back to a different model.
 
-Apple Speech is macOS-only and uses Apple's native Speech framework through a small Swift helper script launched from Python. It converts the input audio to 16 kHz mono wav with `ffmpeg` before transcription, so `.wav`, `.m4a`, and `.webm` inputs can be used when `ffmpeg` can read them. The app language is mapped to an Apple locale such as `pl-PL`, `de-DE`, or `ja-JP`.
+## Platform Behavior
+
+macOS Apple Silicon:
+
+- Providers: Whisper, Apple Speech, Both
+- Devices: `mps`, `cpu`, or `auto`
+- `auto` prefers MPS when available
+
+Windows:
+
+- Providers: Whisper, Windows Speech, Both
+- Devices: `cuda`, `cpu`, or `auto`
+- `auto` prefers CUDA when available
+- Windows Speech is experimental and depends on installed Windows Speech recognizers
+
+Linux:
+
+- Providers: Whisper only
+- Devices: `cuda`, `cpu`, or `auto`
+- `auto` prefers CUDA when available
+- Native Apple/Windows STT options are hidden
+
+MPS is never selected outside macOS. Native STT failures are reported with statuses such as `failed`, `unavailable`, `invalid`, or `skipped`; they are not shown as `0.0/100`.
+
+## Apple Speech STT
+
+Apple Speech is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It may require Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, VS Code, or PyCharm.
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
@@ -91,134 +175,198 @@ python scripts/stt_model.py recordings/my_recording.wav \
   --output transcripts/my_recording.txt
 ```
 
-Or with the shell helper:
+## Windows Speech STT
 
-```bash
-./scripts/transcribe.sh recordings/my_recording.wav transcripts --stt-provider apple --language pl
+Windows Speech is Windows-only and experimental. It uses a PowerShell helper under `scripts/windows_speech_helper/` and requires a matching installed Windows Speech recognizer for the selected locale.
+
+```powershell
+python scripts/stt_model.py recordings/my_recording.wav `
+  --stt-provider windows_speech `
+  --language en `
+  --output transcripts/my_recording.txt
 ```
 
-macOS may ask for Speech Recognition permission. Apple Speech runs in the backend process, not in the browser. If you open the page in Arc but start the backend from Terminal, iTerm, PyCharm, or VS Code, enable Speech Recognition for that backend-launching app in System Settings, then restart the backend and run the command again.
+## Both Provider Mode
 
-### Both providers
-
-Use `both` to transcribe the same input audio with Whisper and Apple Speech. In `both` mode, Whisper and Apple STT run in parallel so checking time is closer to the slower provider instead of the sum of both. Whisper still returns if Apple Speech is unavailable or fails.
+On platforms with a native provider, `both` checks the same recording with Whisper and native STT in parallel:
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider both \
-  --language en \
+  --language pl \
   --model large \
   --device auto \
-  --fast-mode \
   --output transcripts/my_recording.txt
-python scripts/compare.py --stt-provider both
 ```
 
-If Whisper returns a garbage transcript such as repeated punctuation, the app logs validation details in the backend/worker console, retries Whisper once with safer decoding settings, and marks the provider as `ok_retry` if the retry recovers. Raw garbage transcripts are not shown in the UI.
-
-This writes:
+Outputs are provider-specific:
 
 ```text
 transcripts/my_recording.whisper.txt
 transcripts/my_recording.apple.txt
-results/comparison.txt
+transcripts/my_recording.windows_speech.txt
 ```
 
-Or with the shell helper:
-
-```bash
-./scripts/transcribe.sh recordings/my_recording.wav transcripts --stt-provider both --language en --model large --fast-mode
-python scripts/compare.py --stt-provider both
-```
-
-## Fluency & Timing Match
-
-The main score remains the STT transcript score: did Whisper or Apple Speech understand the words?
-
-The web app also computes a supporting audio feature comparison when model audio exists:
+The web app stores each checked recording under:
 
 ```text
-Timing match
-Rhythm match
-Acoustic similarity
-Model duration
-Your duration
-Speed ratio
-Main issue: pace, silence, or acoustic similarity
-Auto-trimmed silence removed
+runs/<attemptId>/
+runs/<attemptId>/result.json
 ```
 
-This does not use raw waveform shape as the main pronunciation score. The app preprocesses model and user audio to 16 kHz mono wav, trims leading/trailing silence, normalizes loudness, extracts lightweight frame features, aligns them with DTW, and reports the result in the collapsed `Fluency & Timing Match` section. The backend saves `recordings/my_recording.auto_trimmed.wav` for automatic silence trimming. If you manually trim an attempt in the UI, that manual trim overrides auto-trim for the submitted recording. Use these metrics as rhythm/timing guidance, not as the main pronunciation grade.
+Legacy fixed files under `recordings/`, `transcripts/`, and `results/` are kept for CLI workflows only.
 
-### Smoke tests
+Runtime files are ignored by Git. For public release builds, do not commit recordings, transcripts, model audio, generated reports, or `runs/` output.
 
-Provider selection and default-provider checks:
+## Configuration
+
+Common environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PYTHON` | `python` or `python3` from `PATH` | Python executable for backend STT/TTS scripts. |
+| `EDGE_TTS_PYTHON` | same as `PYTHON` | Python executable used for target audio generation. |
+| `WHISPER_MODEL` | `large` | Default Whisper model. |
+| `WHISPER_DEVICE` | `auto` | Whisper device: `auto`, `cpu`, `mps`, or `cuda`. |
+| `WHISPER_WARMUP` | `1` in launcher scripts | Preload the Whisper model on backend startup. |
+| `WHISPER_RETRY_DEVICE` | `same` | Use `same` or `cpu` for safer retry after invalid Whisper output. |
+| `STT_LANGUAGE_AUTO_OVERRIDE` | unset | Set to `1` to override selected language when target text strongly indicates another language. |
+| `BACKEND_PORT` | `6174` | Backend port. |
+| `FRONTEND_PORT` | `6173` | Frontend port. |
+| `FRONTEND_HOST` | `127.0.0.1` | Frontend host binding. |
+| `VITE_API_BASE` | `http://localhost:<BACKEND_PORT>` | Frontend API base URL. |
+| `MAX_UPLOAD_MB` | `25` | Maximum accepted recording upload size. |
+
+## Performance Expectations
+
+Actual speed depends heavily on model, CPU/GPU, and whether the model is already warm.
+
+- `medium`: faster rough checking, less reliable for Polish and multilingual pronunciation.
+- `large`: default strict checking, more reliable, slower cold starts.
+- `large-v3-turbo`: fastest strict option when supported by your Whisper package, usually much faster than `large`.
+- Apple Silicon MPS can speed up Whisper on macOS, but CPU fallback remains supported.
+- NVIDIA CUDA can speed up Whisper on Windows/Linux when the installed PyTorch build supports CUDA.
+- AMD GPUs on Windows generally fall back to CPU in this repo; Windows Speech can still be used as native comparison STT.
+
+## Practice Features
+
+The web app keeps:
+
+- Target audio generation and playback
+- Up to 10 saved recording attempts
+- Selected-attempt checking workflow
+- Manual trimming and automatic silence trimming
+- Whisper retry after invalid garbage transcripts
+- Provider statuses and invalid transcript validation
+- Word accuracy and Fluency / Timing Match
+- Teacher feedback and practice history
+- Export Practice Report
+
+When checking is in progress, the right-side result panel shows staged progress for audio preparation, auto-trim, WAV conversion, Whisper, optional native STT, comparison, fluency/timing, feedback, and history saving. Backend logs include per-step timing and attempt IDs.
+
+## Example Targets
+
+English:
+
+```text
+Today I will practice speaking clearly, slowly, and with natural rhythm.
+```
+
+Polish:
+
+```text
+Dzisiaj ćwiczę wyraźną wymowę, spokojne tempo i naturalny rytm.
+```
+
+Vietnamese:
+
+```text
+Hôm nay tôi luyện nói rõ ràng, chậm rãi và có nhịp điệu tự nhiên.
+```
+
+German:
+
+```text
+Heute übe ich deutliches Sprechen, langsames Tempo und natürlichen Rhythmus.
+```
+
+## Troubleshooting
+
+Whisper model download is slow:
+
+- First use downloads model weights. Keep the terminal open until the download completes.
+- Use `large-v3-turbo` or `medium` for faster checks if strict Large is too slow.
+
+MPS is unavailable:
+
+- MPS is macOS Apple Silicon only.
+- On Intel macOS, Windows, and Linux, use `auto` or `cpu`.
+
+Apple Speech permission fails:
+
+- Enable Speech Recognition permission for the app that launched the backend, not just the browser.
+- Restart the backend after changing macOS permissions.
+
+Microphone permission fails:
+
+- Use `http://localhost:6173` or HTTPS; browser microphone APIs do not work on arbitrary insecure origins.
+- Grant microphone permission in the browser and in OS privacy settings.
+
+STT returns punctuation or an empty transcript:
+
+- Whisper retries once with safer decoding settings.
+- Invalid transcripts are hidden from the UI and ignored for scoring.
+- Record again in a quieter place and check that the live waveform moves.
+
+Browser points to the wrong backend URL:
+
+- Set `VITE_API_BASE=http://localhost:<backend-port>` before starting the frontend.
+- Make sure the backend terminal says `Backend running at http://localhost:<port>`.
+
+## Limitations
+
+- This is a local practice tool, not a clinical speech assessment system.
+- STT scores measure whether an STT engine understood the words; they are not a complete pronunciation diagnosis.
+- Apple Speech and Windows Speech are experimental comparison providers.
+- Windows Speech depends on installed Windows recognizers for the target locale.
+- Docker is not currently a supported release target. Apple Speech and MPS should not be expected to work inside Docker.
+- Browser and microphone behavior vary by OS and browser; use `MANUAL_QA.md` before publishing a release.
+
+## Tests
+
+Python tests:
 
 ```bash
 python -m unittest tests.test_stt_providers
 ```
 
-Optional Apple Speech smoke test on macOS:
+Backend storage tests:
+
+```bash
+npm --prefix backend test
+```
+
+Frontend build:
+
+```bash
+npm --prefix frontend run build
+```
+
+All standard checks:
+
+```bash
+./scripts/run_all_tests.sh
+```
+
+On Windows:
+
+```powershell
+.\scripts\run_all_tests.ps1
+```
+
+Optional native STT smoke tests:
 
 ```bash
 RUN_APPLE_STT_SMOKE=1 python -m unittest tests.test_stt_providers.STTProviderTests.test_apple_provider_smoke
-```
-
-## Daily Loop
-
-Edit `targets/target.txt`, then run:
-
-```bash
-VOICE="nl-NL-ColetteNeural" ./scripts/make_model_audio.sh
-afplay model_audio/target.mp3
-SECONDS_TO_RECORD=8 ./scripts/record_mac.sh
-LANGUAGE="nl" MODEL="large" ./scripts/transcribe.sh recordings/my_recording.wav
-python scripts/compare.py
-```
-
-Or run the full loop:
-
-```bash
-./scripts/practice_once.sh
-```
-
-## Web app workflow
-
-### Start
-
-```bash
-conda activate stt_whisper
-./run_web_app.sh
-```
-
-Then open:
-
-```text
-http://localhost:6173
-```
-
-When you click `Check Selected Recording`, the app shows a visible checking progress panel with staged statuses for audio preparation, auto-trim, WAV conversion, Whisper Large, optional Apple STT, transcript comparison, Fluency & Timing Match, teacher feedback, and history saving. This first version uses frontend staged progress and updates to the final result when the backend returns. The backend also logs timing for audio preparation, auto-trim, Whisper/Apple STT, scoring, fluency matching, and total request time.
-
-The backend runs on `http://localhost:6174`.
-
-### Practice flow
-
-1. Select the practice language.
-2. Paste the sentence you want to practice.
-3. Optionally click `Generate Target Audio` and listen to the model audio.
-4. Click `Start Recording`.
-5. Speak the sentence.
-6. Click `Stop Recording`.
-7. Click `Submit Practice`.
-8. Read the Whisper transcript and comparison result.
-
-## Voices
-
-```bash
-VOICE="nl-NL-ColetteNeural" ./scripts/make_model_audio.sh
-VOICE="de-DE-KatjaNeural" LANGUAGE="German" ./scripts/practice_once.sh
-VOICE="pl-PL-ZofiaNeural" LANGUAGE="Polish" ./scripts/practice_once.sh
-VOICE="vi-VN-HoaiMyNeural" LANGUAGE="Vietnamese" ./scripts/practice_once.sh
-VOICE="ja-JP-NanamiNeural" LANGUAGE="Japanese" ./scripts/practice_once.sh
-VOICE="en-US-JennyNeural" LANGUAGE="English" ./scripts/practice_once.sh
+RUN_WINDOWS_STT_SMOKE=1 python -m unittest tests.test_stt_providers.STTProviderTests.test_windows_speech_provider_smoke
 ```

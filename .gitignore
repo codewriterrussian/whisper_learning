@@ -7,6 +7,13 @@ transcripts/
 results/
 runs/
 model_audio/
+generated_reports/
+.apple_speech_helper/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+frontend/dist/
+backend/.cache/
 *.wav
 *.webm
 *.mp3

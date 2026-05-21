@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host ${FRONTEND_HOST:-127.0.0.1} --port ${FRONTEND_PORT:-6173} --strictPort",
+    "dev": "node dev-server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test render_smoke.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-basic-ssl": "latest",

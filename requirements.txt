@@ -1,0 +1,7 @@
+edge-tts
+numpy
+openai-whisper
+rapidfuzz
+scipy
+soundfile
+torch

@@ -53,15 +53,24 @@ def handle_request(payload: dict[str, Any]) -> Any:
         if isinstance(whisper_provider, WhisperProvider):
             return whisper_provider.transcribe_with_retry(str(audio_path))
 
-    return transcribe_audio(
-        audio_path,
-        language=language,
-        model_name=model_name,
-        device=device,
-        stt_provider=provider,
-        fast_mode=fast_mode,
-        preprocess=False,
-    )
+    try:
+        return {
+            "status": "ok",
+            "transcript": transcribe_audio(
+                audio_path,
+                language=language,
+                model_name=model_name,
+                device=device,
+                stt_provider=provider,
+                fast_mode=fast_mode,
+                preprocess=False,
+            ),
+            "error": "",
+        }
+    except Exception as error:
+        if provider in {"apple", "windows_speech"}:
+            return {"status": "failed", "transcript": "", "error": str(error)}
+        raise
 
 
 def main() -> None:

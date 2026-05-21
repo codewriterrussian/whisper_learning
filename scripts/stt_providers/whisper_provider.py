@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -31,18 +32,36 @@ class WhisperProvider(STTProvider):
 
     def resolve_device(self, force_device: Optional[str] = None) -> str:
         if force_device:
-            return force_device
+            requested_force = force_device.lower()
+            if requested_force == "mps" and platform.system() == "Darwin" and torch.backends.mps.is_available():
+                return "mps"
+            if requested_force == "cuda" and torch.cuda.is_available():
+                return "cuda"
+            if requested_force not in {"mps", "cuda"}:
+                return requested_force
+            print(f"[STT] {requested_force} requested but unavailable on this platform; falling back to CPU", file=sys.stderr)
+            return "cpu"
 
         requested_device = self.requested_device.lower()
 
         if requested_device == "mps":
-            if torch.backends.mps.is_available():
+            if platform.system() == "Darwin" and torch.backends.mps.is_available():
                 return "mps"
-            print("[STT] MPS requested but unavailable; falling back to CPU", file=sys.stderr)
+            print("[STT] MPS requested but unavailable on this platform; falling back to CPU", file=sys.stderr)
+            return "cpu"
+
+        if requested_device == "cuda":
+            if torch.cuda.is_available():
+                return "cuda"
+            print("[STT] CUDA requested but unavailable; falling back to CPU", file=sys.stderr)
             return "cpu"
 
         if requested_device == "auto":
-            return "mps" if torch.backends.mps.is_available() else "cpu"
+            if platform.system() == "Darwin" and torch.backends.mps.is_available():
+                return "mps"
+            if torch.cuda.is_available():
+                return "cuda"
+            return "cpu"
 
         return "cpu"
 

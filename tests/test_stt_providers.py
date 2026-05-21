@@ -15,8 +15,16 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.compare import format_combined_result, validate_transcript  # noqa: E402
 from scripts.audio_similarity import SAMPLE_RATE, auto_trim_audio, compare_audio  # noqa: E402
-from scripts.stt_model import ALLOWED_STT_PROVIDERS, DEFAULT_STT_PROVIDER, get_provider, transcribe_both  # noqa: E402
-from scripts.stt_providers import AppleSpeechProvider, WhisperProvider  # noqa: E402
+from scripts.stt_model import (  # noqa: E402
+    ALLOWED_STT_PROVIDERS,
+    DEFAULT_STT_PROVIDER,
+    get_available_stt_providers,
+    get_native_provider_name,
+    get_platform_key,
+    get_provider,
+    transcribe_both,
+)
+from scripts.stt_providers import AppleSpeechProvider, WhisperProvider, WindowsSpeechProvider  # noqa: E402
 import scripts.stt_providers.whisper_provider as whisper_provider_module  # noqa: E402
 
 
@@ -38,8 +46,27 @@ class STTProviderTests(unittest.TestCase):
 
     def test_provider_selection(self) -> None:
         self.assertIn("both", ALLOWED_STT_PROVIDERS)
+        self.assertIn("windows_speech", ALLOWED_STT_PROVIDERS)
         self.assertIsInstance(get_provider("whisper"), WhisperProvider)
         self.assertIsInstance(get_provider("apple"), AppleSpeechProvider)
+        self.assertIsInstance(get_provider("windows_speech"), WindowsSpeechProvider)
+
+    def test_platform_provider_availability(self) -> None:
+        self.assertEqual(get_platform_key("Darwin"), "darwin")
+        self.assertEqual(get_platform_key("Windows"), "win32")
+        self.assertEqual(get_platform_key("Linux"), "linux")
+        self.assertEqual(get_native_provider_name("darwin"), "apple")
+        self.assertEqual(get_native_provider_name("win32"), "windows_speech")
+        self.assertIsNone(get_native_provider_name("linux"))
+        self.assertEqual(get_available_stt_providers("darwin"), ["whisper", "apple", "both"])
+        self.assertEqual(get_available_stt_providers("win32"), ["whisper", "windows_speech", "both"])
+        self.assertEqual(get_available_stt_providers("linux"), ["whisper"])
+
+    def test_native_providers_disabled_off_platform(self) -> None:
+        self.assertNotIn("apple", get_available_stt_providers("win32"))
+        self.assertNotIn("apple", get_available_stt_providers("linux"))
+        self.assertNotIn("windows_speech", get_available_stt_providers("darwin"))
+        self.assertNotIn("windows_speech", get_available_stt_providers("linux"))
 
     def test_whisper_defaults_to_large_fast_mode(self) -> None:
         provider = get_provider("whisper")
@@ -73,6 +100,27 @@ class STTProviderTests(unittest.TestCase):
         self.assertEqual(captured_options["temperature"], 0)
         self.assertFalse(captured_options["condition_on_previous_text"])
         self.assertFalse(captured_options["word_timestamps"])
+
+    def test_mps_not_selected_outside_macos(self) -> None:
+        provider = WhisperProvider(model_name="large", device="mps")
+        with patch("scripts.stt_providers.whisper_provider.platform.system", return_value="Linux"):
+            self.assertEqual(provider.resolve_device(), "cpu")
+
+    def test_auto_uses_cuda_when_available_off_macos(self) -> None:
+        provider = WhisperProvider(model_name="large", device="auto")
+        with (
+            patch("scripts.stt_providers.whisper_provider.platform.system", return_value="Linux"),
+            patch.object(whisper_provider_module.torch.cuda, "is_available", return_value=True),
+        ):
+            self.assertEqual(provider.resolve_device(), "cuda")
+
+    def test_auto_falls_back_to_cpu_without_accelerator(self) -> None:
+        provider = WhisperProvider(model_name="large", device="auto")
+        with (
+            patch("scripts.stt_providers.whisper_provider.platform.system", return_value="Linux"),
+            patch.object(whisper_provider_module.torch.cuda, "is_available", return_value=False),
+        ):
+            self.assertEqual(provider.resolve_device(), "cpu")
 
     def test_large_model_cache_reuses_model_by_name_and_device(self) -> None:
         whisper_provider_module._MODEL_CACHE.clear()
@@ -108,7 +156,10 @@ class STTProviderTests(unittest.TestCase):
                 return FakeProvider(error=RuntimeError("Apple unavailable"))
             raise AssertionError(provider_name)
 
-        with patch("scripts.stt_model.get_provider", side_effect=fake_get_provider):
+        with (
+            patch("scripts.stt_model.get_provider", side_effect=fake_get_provider),
+            patch("scripts.stt_model.get_native_provider_name", return_value="apple"),
+        ):
             result = transcribe_both("recordings/my_recording.wav")
 
         self.assertEqual(result["whisper"]["status"], "ok")
@@ -252,7 +303,10 @@ class STTProviderTests(unittest.TestCase):
                 return FakeProvider("apple transcript")
             raise AssertionError(provider_name)
 
-        with patch("scripts.stt_model.get_provider", side_effect=fake_get_provider):
+        with (
+            patch("scripts.stt_model.get_provider", side_effect=fake_get_provider),
+            patch("scripts.stt_model.get_native_provider_name", return_value="apple"),
+        ):
             result = transcribe_both("recordings/my_recording.wav")
 
         self.assertEqual(result["whisper"]["status"], "invalid")
@@ -316,12 +370,28 @@ class STTProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "macOS-only"):
             provider.transcribe("recordings/my_recording.wav")
 
+    def test_windows_speech_provider_clear_error_off_windows(self) -> None:
+        if platform.system() == "Windows":
+            self.skipTest("Non-Windows error path only.")
+
+        provider = get_provider("windows_speech")
+        with self.assertRaisesRegex(RuntimeError, "Windows-only"):
+            provider.transcribe("recordings/my_recording.wav")
+
     @unittest.skipUnless(platform.system() == "Darwin", "Apple Speech STT is macOS-only.")
     @unittest.skipUnless(os.environ.get("RUN_APPLE_STT_SMOKE") == "1", "Set RUN_APPLE_STT_SMOKE=1 to run Apple Speech.")
     def test_apple_provider_smoke(self) -> None:
         audio_path = ROOT / "recordings" / "my_recording.wav"
         self.assertTrue(audio_path.exists(), f"Missing smoke-test audio: {audio_path}")
         transcript = get_provider("apple").transcribe(str(audio_path))
+        self.assertIsInstance(transcript, str)
+
+    @unittest.skipUnless(platform.system() == "Windows", "Windows Speech STT is Windows-only.")
+    @unittest.skipUnless(os.environ.get("RUN_WINDOWS_STT_SMOKE") == "1", "Set RUN_WINDOWS_STT_SMOKE=1 to run Windows Speech.")
+    def test_windows_speech_provider_smoke(self) -> None:
+        audio_path = ROOT / "recordings" / "my_recording.wav"
+        self.assertTrue(audio_path.exists(), f"Missing smoke-test audio: {audio_path}")
+        transcript = get_provider("windows_speech").transcribe(str(audio_path))
         self.assertIsInstance(transcript, str)
 
 

@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const mainJs = readFileSync(new URL("./src/main.js", import.meta.url), "utf8");
+
+test("result panel has the checking progress and final result anchors", () => {
+  for (const id of [
+    "checkingProgressPanel",
+    "practiceResultContent",
+    "overallScore",
+    "fluencyScoreSummary",
+    "transcriptResult",
+    "appleTranscriptCard",
+    "nativeTranscriptLabel",
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+});
+
+test("settings are platform-aware in frontend source", () => {
+  assert.match(mainJs, /api\/bootstrap/);
+  assert.match(mainJs, /windows_speech/);
+  assert.match(mainJs, /getNativeProviderLabel/);
+});
+
+test("clear local data UI is wired", () => {
+  assert.match(html, /id="clearLocalDataBtn"/);
+  assert.match(mainJs, /api\/local-data/);
+});

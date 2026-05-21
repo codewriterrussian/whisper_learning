@@ -230,6 +230,7 @@ def format_combined_result(
     whisper_note: str = "",
     apple_status: str = "unavailable",
     apple_note: str = "",
+    native_provider_name: str = "Apple",
 ) -> str:
     if whisper_status in {"ok", "ok_retry"}:
         whisper_validation = validate_transcript(whisper_transcript)
@@ -238,7 +239,7 @@ def format_combined_result(
         whisper_note = whisper_validation.reason
     if apple_status in {"ok", "ok_retry"}:
         apple_validation = validate_transcript(apple_transcript)
-        print(get_transcript_validation_debug("Apple", apple_transcript, apple_validation.reason), file=sys.stderr)
+        print(get_transcript_validation_debug(native_provider_name, apple_transcript, apple_validation.reason), file=sys.stderr)
         apple_status = apple_status if apple_validation.status == "ok" else apple_validation.status
         apple_note = apple_validation.reason
 
@@ -251,7 +252,7 @@ def format_combined_result(
             "1. Compare the available STT transcripts.",
             "2. Ignore providers marked failed, unavailable, or invalid.",
             "3. Record again after practicing unclear words slowly.",
-            "4. Use Apple STT as experimental comparison only.",
+            f"4. Use {native_provider_name} STT as experimental comparison only.",
         ])
     )
 
@@ -262,7 +263,7 @@ Target:
 
 {format_score_block("Whisper", whisper_transcript, whisper_status, whisper_score, whisper_note)}
 
-{format_score_block("Apple", apple_transcript, apple_status, apple_score, apple_note)}
+{format_score_block(native_provider_name, apple_transcript, apple_status, apple_score, apple_note)}
 
 Practice suggestion:
 {practice_suggestion}
@@ -287,15 +288,19 @@ def write_result(result: str, out_file: Path = OUT_FILE) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare target text against one or two STT transcripts.")
-    parser.add_argument("--stt-provider", choices=["whisper", "apple", "both"], default="whisper")
+    parser.add_argument("--stt-provider", choices=["whisper", "apple", "windows_speech", "both"], default="whisper")
     parser.add_argument("--whisper-status", default="ok")
     parser.add_argument("--whisper-note", default="")
     parser.add_argument("--apple-status", default="ok")
     parser.add_argument("--apple-note", default="")
+    parser.add_argument("--native-provider-name", default="Apple")
+    parser.add_argument("--native-status", default="")
+    parser.add_argument("--native-note", default="")
     parser.add_argument("--target-file", default=str(TARGET_FILE))
     parser.add_argument("--transcript-file", default=str(TRANSCRIPT_FILE))
     parser.add_argument("--whisper-transcript-file", default=str(WHISPER_TRANSCRIPT_FILE))
     parser.add_argument("--apple-transcript-file", default=str(APPLE_TRANSCRIPT_FILE))
+    parser.add_argument("--native-transcript-file", default="")
     parser.add_argument("--out-file", default=str(OUT_FILE))
     return parser.parse_args()
 
@@ -307,25 +312,37 @@ def main() -> None:
 
     if args.stt_provider == "both":
         whisper_transcript = read_text(Path(args.whisper_transcript_file))
-        apple_transcript = read_text(Path(args.apple_transcript_file), required=False)
+        native_transcript_file = Path(args.native_transcript_file or args.apple_transcript_file)
+        native_transcript = read_text(native_transcript_file, required=False)
+        native_status = args.native_status or args.apple_status
+        native_note = args.native_note or args.apple_note
         write_result(
             format_combined_result(
                 target_raw,
                 whisper_transcript,
-                apple_transcript,
+                native_transcript,
                 whisper_status=args.whisper_status,
                 whisper_note=args.whisper_note,
-                apple_status=args.apple_status,
-                apple_note=args.apple_note,
+                apple_status=native_status,
+                apple_note=native_note,
+                native_provider_name=args.native_provider_name,
             ),
             out_file=out_file,
         )
         return
 
     transcript_raw = read_text(Path(args.transcript_file))
-    label = "Apple Speech" if args.stt_provider == "apple" else "Whisper"
-    provider_status = args.apple_status if args.stt_provider == "apple" else args.whisper_status
-    provider_note = args.apple_note if args.stt_provider == "apple" else args.whisper_note
+    provider_labels = {"apple": "Apple Speech", "windows_speech": "Windows Speech", "whisper": "Whisper"}
+    label = provider_labels.get(args.stt_provider, "Whisper")
+    if args.stt_provider == "apple":
+        provider_status = args.apple_status
+        provider_note = args.apple_note
+    elif args.stt_provider == "windows_speech":
+        provider_status = args.native_status or args.apple_status
+        provider_note = args.native_note or args.apple_note
+    else:
+        provider_status = args.whisper_status
+        provider_note = args.whisper_note
     write_result(
         format_single_result(target_raw, transcript_raw, provider_label=label, provider_status=provider_status, provider_note=provider_note),
         out_file=out_file,

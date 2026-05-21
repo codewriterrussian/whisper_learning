@@ -65,11 +65,12 @@
           <label class="field">
             <span>Comparison mode</span>
             <select id="sttProvider">
-              <option value="whisper">Whisper only</option>
+              <option value="whisper" selected>Whisper only</option>
               <option value="apple">Apple Speech only</option>
-              <option value="both" selected>Developer comparison - Whisper + Apple</option>
+              <option value="windows_speech">Windows Speech only</option>
+              <option value="both">Comparison - Whisper + Native STT</option>
             </select>
-            <small class="field-help">Default checks both providers. Apple Speech is experimental and macOS-only.</small>
+            <small id="sttProviderHelp" class="field-help">Whisper is default. Native STT options appear only when supported on this platform.</small>
           </label>
 
           <label class="field">
@@ -77,9 +78,10 @@
             <select id="whisperDevice">
               <option value="auto">Auto - use MPS when available</option>
               <option value="mps">MPS - Apple Silicon GPU</option>
+              <option value="cuda">CUDA - NVIDIA GPU</option>
               <option value="cpu">CPU - compatibility mode</option>
             </select>
-            <small class="field-help">MPS can speed up larger models on Apple Silicon. CPU is slower but more predictable.</small>
+            <small id="whisperDeviceHelp" class="field-help">Auto chooses the best available Whisper device for this platform.</small>
           </label>
         </details>
 
@@ -200,7 +202,7 @@
             </article>
 
             <article id="appleTranscriptCard" class="result-card" hidden>
-              <span class="result-label">Apple STT transcript</span>
+              <span id="nativeTranscriptLabel" class="result-label">Native STT transcript</span>
               <p id="appleTranscriptResult"></p>
             </article>
 
@@ -313,6 +315,9 @@
             </div>
             <button id="showAllHistoryBtn" type="button" class="secondary show-history-button" hidden>
               Show all history
+            </button>
+            <button id="clearLocalDataBtn" type="button" class="danger show-history-button">
+              Clear history and local runs
             </button>
           </section>
         </div>

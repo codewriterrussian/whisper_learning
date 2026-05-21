@@ -6,15 +6,15 @@ cd "$ROOT"
 
 if [[ -n "${PYTHON:-}" ]]; then
   PYTHON_BIN="$PYTHON"
-elif [[ -x /Users/bladeruuner/miniforge3/envs/stt_whisper/bin/python ]]; then
-  PYTHON_BIN="/Users/bladeruuner/miniforge3/envs/stt_whisper/bin/python"
-elif [[ -x /Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python ]]; then
-  PYTHON_BIN="/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python)"
 else
-  PYTHON_BIN="/Users/bladeruuner/miniforge3/envs/stt_whisper/bin/python"
+  PYTHON_BIN=""
 fi
 
-if [[ ! -x "$PYTHON_BIN" ]]; then
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
   echo "[ERROR] Python not found: $PYTHON_BIN"
   echo "Set PYTHON manually, for example:"
   echo "PYTHON=/path/to/python ./run_web_app.sh"
@@ -54,7 +54,8 @@ require_free_port() {
 }
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo "[ERROR] ffmpeg is required but not found. Install it with: brew install ffmpeg"
+  echo "[ERROR] ffmpeg is required but not found."
+  echo "Install it with: brew install ffmpeg, sudo apt install ffmpeg, or your distro package manager."
   exit 1
 fi
 
