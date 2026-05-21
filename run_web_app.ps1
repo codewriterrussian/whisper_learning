@@ -18,6 +18,15 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
   throw "ffmpeg is required. Install it with: winget install Gyan.FFmpeg"
 }
 
+$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $npmCommand) {
+  $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+}
+if (-not $npmCommand) {
+  throw "npm was not found. Install Node.js 20 or newer, then restart PowerShell."
+}
+$NpmBin = $npmCommand.Source
+
 if (-not $env:WHISPER_MODEL) { $env:WHISPER_MODEL = "large" }
 if (-not $env:WHISPER_DEVICE) { $env:WHISPER_DEVICE = "auto" }
 if (-not $env:WHISPER_WARMUP) { $env:WHISPER_WARMUP = "1" }
@@ -37,19 +46,19 @@ Write-Host "[INFO] Backend port: $env:BACKEND_PORT"
 if (-not (Test-Path "backend/node_modules")) {
   Write-Host "[INFO] Installing backend dependencies..."
   Push-Location backend
-  npm install
+  & $NpmBin install
   Pop-Location
 }
 
 if (-not (Test-Path "frontend/node_modules")) {
   Write-Host "[INFO] Installing frontend dependencies..."
   Push-Location frontend
-  npm install
+  & $NpmBin install
   Pop-Location
 }
 
-$backend = Start-Process npm -ArgumentList "run", "dev" -WorkingDirectory (Join-Path $Root "backend") -NoNewWindow -PassThru
-$frontend = Start-Process npm -ArgumentList "run", "dev" -WorkingDirectory (Join-Path $Root "frontend") -NoNewWindow -PassThru
+$backend = Start-Process -FilePath $NpmBin -ArgumentList @("run", "dev") -WorkingDirectory (Join-Path $Root "backend") -NoNewWindow -PassThru
+$frontend = Start-Process -FilePath $NpmBin -ArgumentList @("run", "dev") -WorkingDirectory (Join-Path $Root "frontend") -NoNewWindow -PassThru
 
 try {
   Wait-Process -Id $backend.Id, $frontend.Id
