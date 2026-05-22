@@ -6,8 +6,8 @@ cd "$ROOT"
 
 if [[ -n "${PYTHON:-}" ]]; then
   PYTHON_BIN="$PYTHON"
-elif [[ -x "/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python" ]]; then
-  PYTHON_BIN="/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python"
+elif [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PYTHON_BIN="$ROOT/.venv/bin/python"
 elif [[ -x "$HOME/opt/anaconda3/envs/stt_whisper/bin/python" ]]; then
   PYTHON_BIN="$HOME/opt/anaconda3/envs/stt_whisper/bin/python"
 elif [[ -x "$HOME/miniforge3/envs/stt_whisper/bin/python" ]]; then
@@ -60,7 +60,7 @@ PY
     echo "[ERROR] Python in use: $PYTHON"
     echo
     echo "Fix option 1:"
-    echo "PYTHON=/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python ./run_web_app.sh"
+    echo "PYTHON=/path/to/python ./run_web_app.sh"
     echo
     echo "Fix option 2:"
     echo "$PYTHON -m pip install -r requirements.txt"
@@ -72,7 +72,7 @@ PY
     echo "[ERROR] Python in use: $PYTHON"
     echo
     echo "Fix option 1:"
-    echo "PYTHON=/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python ./run_web_app.sh"
+    echo "PYTHON=/path/to/python ./run_web_app.sh"
     echo
     echo "Fix option 2:"
     echo "$PYTHON -m pip install -r requirements.txt"

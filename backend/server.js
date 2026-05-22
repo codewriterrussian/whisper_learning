@@ -4,22 +4,25 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import { spawn } from "child_process";
+import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import { buildCanonicalResult, buildRunPaths, createAttemptId, toRootRelative as toRootRelativePath } from "./run_storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
+const { runDoctor } = require("../scripts/doctor.js");
 const ROOT = path.resolve(__dirname, "..");
 
 const PORT = process.env.PORT || 6174;
 const PYTHON = process.env.PYTHON || "python";
 const EDGE_TTS_PYTHON = process.env.EDGE_TTS_PYTHON || PYTHON;
-const DEFAULT_STT_PROVIDER = "whisper";
+const DEFAULT_STT_PROVIDER = process.platform === "darwin" ? "both" : "whisper";
 const DEFAULT_WHISPER_MODEL = "large";
 const ALLOWED_LANGUAGES = new Set(["en", "de", "nl", "pl", "ru", "ja", "vi", "zh"]);
 const ALLOWED_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo"]);
 const ALLOWED_WHISPER_DEVICES = new Set(["auto", "cpu", "mps", "cuda"]);
-const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "windows_speech", "windows", "colab_whisper", "both", "whisper+windows"]);
+const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "colab_whisper", "both"]);
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 25) * 1024 * 1024;
 const ALLOWED_AUDIO_EXTENSIONS = new Set([".webm", ".wav", ".m4a", ".mp3", ".ogg"]);
 const ALLOWED_AUDIO_MIME_PREFIXES = ["audio/"];
@@ -106,18 +109,12 @@ function getNativeProvider() {
   if (platformKey === "darwin") {
     return "apple";
   }
-  if (platformKey === "win32") {
-    return "windows_speech";
-  }
   return "";
 }
 
 function getProviderLabel(provider) {
   if (provider === "apple") {
     return "Apple";
-  }
-  if (provider === "windows_speech") {
-    return "Windows Speech";
   }
   if (provider === "whisper") {
     return "Whisper";
@@ -140,10 +137,7 @@ function getSttProviderOptions() {
 
   if (nativeProvider === "apple") {
     providers.push({ value: "apple", label: "Apple Speech only - experimental", available: true });
-    providers.push({ value: "both", label: "Comparison - Whisper + Apple Speech", available: true });
-  } else if (nativeProvider === "windows_speech") {
-    providers.push({ value: "windows_speech", label: "Windows Speech only - experimental", available: true });
-    providers.push({ value: "both", label: "Comparison - Whisper + Windows Speech", available: true });
+    providers.push({ value: "both", label: "Whisper + Apple STT", available: true });
   }
   providers.push({
     value: "colab_whisper",
@@ -223,11 +217,10 @@ function normalizeWhisperDevice(device) {
 
 function normalizeSttProvider(provider) {
   const requestedProvider = String(provider || DEFAULT_STT_PROVIDER).toLowerCase();
-  const providerAlias = requestedProvider === "windows"
-    ? "windows_speech"
-    : requestedProvider === "whisper+windows"
-      ? "both"
-      : requestedProvider;
+  // Older clients may still submit removed Windows native STT values. Treat them as the current platform default.
+  const providerAlias = requestedProvider === "windows" || requestedProvider === "windows_speech" || requestedProvider === "whisper+windows"
+    ? DEFAULT_STT_PROVIDER
+    : requestedProvider;
 
   if (!ALLOWED_STT_PROVIDERS.has(requestedProvider) || !ALLOWED_STT_PROVIDERS.has(providerAlias)) {
     return DEFAULT_STT_PROVIDER;
@@ -235,12 +228,6 @@ function normalizeSttProvider(provider) {
 
   const nativeProvider = getNativeProvider();
   if (providerAlias === "apple" && nativeProvider !== "apple") {
-    return DEFAULT_STT_PROVIDER;
-  }
-  if (providerAlias === "windows_speech" && nativeProvider !== "windows_speech") {
-    return DEFAULT_STT_PROVIDER;
-  }
-  if (requestedProvider === "whisper+windows" && nativeProvider !== "windows_speech") {
     return DEFAULT_STT_PROVIDER;
   }
   if (providerAlias === "colab_whisper") {
@@ -557,9 +544,6 @@ function writeTranscriptOutputs(transcriptPath, sttProvider, transcriptResult) {
   if (sttProvider === "apple") {
     fs.writeFileSync(`${stem}.apple${extension}`, `${transcript}\n`, "utf8");
   }
-  if (sttProvider === "windows_speech") {
-    fs.writeFileSync(`${stem}.windows_speech${extension}`, `${transcript}\n`, "utf8");
-  }
   if (sttProvider === "colab_whisper") {
     fs.writeFileSync(`${stem}.colab_whisper${extension}`, `${transcript}\n`, "utf8");
   }
@@ -591,15 +575,12 @@ function getValidProviderScore(comparison, providerName, status) {
   return status === "ok" || status === "ok_retry" ? getProviderScore(comparison, providerName) : "--";
 }
 
-function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript, colabWhisperStatus, colabWhisperTranscript }) {
+function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, colabWhisperStatus, colabWhisperTranscript }) {
   if (whisperStatus === "ok" || whisperStatus === "ok_retry") {
     return whisperTranscript;
   }
   if (appleStatus === "ok" || appleStatus === "ok_retry") {
     return appleTranscript;
-  }
-  if (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") {
-    return windowsSpeechTranscript;
   }
   if (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") {
     return colabWhisperTranscript;
@@ -610,9 +591,6 @@ function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, a
 function getSelectedScoringProvider(sttProvider, nativeProvider, statuses) {
   if (sttProvider === "whisper") {
     return statuses.whisper === "ok" || statuses.whisper === "ok_retry" ? "whisper" : "";
-  }
-  if (sttProvider === "windows_speech") {
-    return statuses.windows_speech === "ok" || statuses.windows_speech === "ok_retry" ? "windows_speech" : "";
   }
   if (sttProvider === "apple") {
     return statuses.apple === "ok" || statuses.apple === "ok_retry" ? "apple" : "";
@@ -639,7 +617,7 @@ function getAttemptedProviders(sttProvider, nativeProvider) {
 }
 
 function buildStructuredProviderResults({ statuses, notes, transcripts, scores, timings }) {
-  const results = Object.fromEntries(["whisper", "apple", "windows_speech", "colab_whisper"].map((provider) => [
+  return Object.fromEntries(["whisper", "apple", "colab_whisper"].map((provider) => [
     provider,
     {
       status: statuses[provider] || "skipped",
@@ -650,8 +628,6 @@ function buildStructuredProviderResults({ statuses, notes, transcripts, scores, 
       timingMs: timings[provider] || 0,
     },
   ]));
-  results.windows = results.windows_speech;
-  return results;
 }
 
 function getFocusWord(targetText, transcript) {
@@ -687,6 +663,22 @@ function formatEdgeTtsError(error) {
 
 function formatPracticeError(error) {
   const message = error.message || String(error);
+
+  if (error.code === "ENOENT" && /ffmpeg/i.test(message)) {
+    return "FFmpeg is missing. This app needs FFmpeg to process your audio. Please run the setup script or install FFmpeg.";
+  }
+
+  if (error.code === "ENOENT" && /python/i.test(message)) {
+    return "Python is missing. Please install Python 3.10 or newer, then run the setup script again.";
+  }
+
+  if (error.code === "ENOENT" && /npm|node/i.test(message)) {
+    return "Node.js/npm is missing. Please install Node.js LTS, then run the setup script again.";
+  }
+
+  if (/spawn ffmpeg ENOENT/i.test(message)) {
+    return "FFmpeg is missing. This app needs FFmpeg to process your audio. Please run the setup script or install FFmpeg.";
+  }
 
   if (/model.*not found|unknown model|not a valid model|failed to load.*model/i.test(message)) {
     return [
@@ -729,6 +721,18 @@ app.get("/api/bootstrap", (_req, res) => {
     defaultWhisperDevice: normalizeWhisperDevice(process.env.WHISPER_DEVICE || "auto"),
     defaultWhisperModel: normalizeWhisperModel("default"),
   });
+});
+
+app.get("/api/system-check", (_req, res) => {
+  try {
+    res.json({ ok: true, ...runDoctor() });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "System Check could not run. Please try the setup script again.",
+      detail: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
 });
 
 app.delete("/api/local-data", (_req, res) => {
@@ -832,7 +836,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const requestedProvider = String(req.body.sttProvider || DEFAULT_STT_PROVIDER);
     const sttProvider = normalizeSttProvider(req.body.sttProvider);
     const nativeProvider = getNativeProvider();
-    const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? sttProvider : "");
+    const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "colab_whisper" ? sttProvider : "");
     const nativeProviderLabel = getProviderLabel(activeNativeProvider || nativeProvider);
     const whisperModel = normalizeWhisperModel(req.body.whisperModel);
     const whisperDevice = normalizeWhisperDevice(req.body.whisperDevice);
@@ -941,18 +945,15 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
 
     let transcript = typeof transcriptResult === "string" ? transcriptResult.trim() : (transcriptResult?.transcript || "");
     let providerResults = null;
-    let whisperStatus = sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? "skipped" : (transcriptResult?.status || "ok");
+    let whisperStatus = sttProvider === "apple" || sttProvider === "colab_whisper" ? "skipped" : (transcriptResult?.status || "ok");
     let whisperNote = transcriptResult?.error || "";
     let whisperRecovered = Boolean(transcriptResult?.recovered);
     let appleStatus = sttProvider === "apple" ? (transcriptResult?.status || "ok") : "skipped";
     let appleNote = sttProvider === "apple" ? (transcriptResult?.error || "") : "";
-    let windowsSpeechStatus = sttProvider === "windows_speech" ? (transcriptResult?.status || "ok") : "skipped";
-    let windowsSpeechNote = sttProvider === "windows_speech" ? (transcriptResult?.error || "") : "";
     let colabWhisperStatus = sttProvider === "colab_whisper" ? (transcriptResult?.status || "ok") : "skipped";
     let colabWhisperNote = sttProvider === "colab_whisper" ? (transcriptResult?.error || "") : "";
-    let whisperTranscript = sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? "" : transcript;
+    let whisperTranscript = sttProvider === "apple" || sttProvider === "colab_whisper" ? "" : transcript;
     let appleTranscript = sttProvider === "apple" ? transcript : "";
-    let windowsSpeechTranscript = sttProvider === "windows_speech" ? transcript : "";
     let colabWhisperTranscript = sttProvider === "colab_whisper" ? transcript : "";
 
     if (sttProvider === "both") {
@@ -962,23 +963,16 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         if (nativeProvider === "apple") {
           console.log(`[timing] Apple STT: ${providerResults._timings.appleMs}ms`);
         }
-        if (nativeProvider === "windows_speech") {
-          console.log(`[timing] Windows Speech STT: ${providerResults._timings.windowsSpeechMs}ms`);
-        }
         timingBreakdown.whisperTranscription = providerResults._timings.whisperMs;
         timingBreakdown.appleStt = providerResults._timings.appleMs || 0;
-        timingBreakdown.windowsSpeechStt = providerResults._timings.windowsSpeechMs || 0;
       }
       whisperTranscript = providerResults.whisper.transcript || "";
       appleTranscript = providerResults.apple?.transcript || "";
-      windowsSpeechTranscript = providerResults.windows_speech?.transcript || "";
       whisperStatus = providerResults.whisper.status || "failed";
       whisperNote = providerResults.whisper.error || "";
       whisperRecovered = Boolean(providerResults.whisper.recovered);
       appleStatus = providerResults.apple?.status || "skipped";
       appleNote = providerResults.apple?.error || "";
-      windowsSpeechStatus = providerResults.windows_speech?.status || "skipped";
-      windowsSpeechNote = providerResults.windows_speech?.error || "";
     }
 
     const checkedWhisper = applyTranscriptValidation("Whisper", whisperStatus, whisperTranscript, whisperNote, { targetText, attemptId });
@@ -987,9 +981,6 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const checkedApple = applyTranscriptValidation("Apple", appleStatus, appleTranscript, appleNote, { targetText, attemptId });
     appleStatus = checkedApple.status;
     appleNote = checkedApple.note;
-    const checkedWindowsSpeech = applyTranscriptValidation("Windows Speech", windowsSpeechStatus, windowsSpeechTranscript, windowsSpeechNote, { targetText, attemptId });
-    windowsSpeechStatus = checkedWindowsSpeech.status;
-    windowsSpeechNote = checkedWindowsSpeech.note;
     const checkedColabWhisper = applyTranscriptValidation("Colab Whisper", colabWhisperStatus, colabWhisperTranscript, colabWhisperNote, { targetText, attemptId });
     colabWhisperStatus = checkedColabWhisper.status;
     colabWhisperNote = checkedColabWhisper.note;
@@ -998,8 +989,6 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       transcript = whisperTranscript;
     } else if (appleStatus === "ok" || appleStatus === "ok_retry") {
       transcript = appleTranscript;
-    } else if (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") {
-      transcript = windowsSpeechTranscript;
     } else if (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") {
       transcript = colabWhisperTranscript;
     } else {
@@ -1049,11 +1038,11 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         "--apple-note",
         appleNote,
         "--native-provider-name",
-        activeNativeProvider === "windows_speech" ? "Windows Speech" : activeNativeProvider === "colab_whisper" ? "Colab Whisper" : "Apple",
+        activeNativeProvider === "colab_whisper" ? "Colab Whisper" : "Apple",
         "--native-status",
-        activeNativeProvider === "windows_speech" ? windowsSpeechStatus : activeNativeProvider === "colab_whisper" ? colabWhisperStatus : appleStatus,
+        activeNativeProvider === "colab_whisper" ? colabWhisperStatus : appleStatus,
         "--native-note",
-        activeNativeProvider === "windows_speech" ? windowsSpeechNote : activeNativeProvider === "colab_whisper" ? colabWhisperNote : appleNote,
+        activeNativeProvider === "colab_whisper" ? colabWhisperNote : appleNote,
         "--target-file",
         toRootRelative(targetPath),
         "--transcript-file",
@@ -1063,7 +1052,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         "--apple-transcript-file",
         toRootRelative(runPaths.appleTranscriptPath),
         "--native-transcript-file",
-        toRootRelative(activeNativeProvider === "windows_speech" ? runPaths.windowsSpeechTranscriptPath : activeNativeProvider === "colab_whisper" ? runPaths.colabWhisperTranscriptPath : runPaths.appleTranscriptPath),
+        toRootRelative(activeNativeProvider === "colab_whisper" ? runPaths.colabWhisperTranscriptPath : runPaths.appleTranscriptPath),
         "--out-file",
         toRootRelative(comparisonPath),
       ];
@@ -1083,50 +1072,42 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       ? {
           whisper: whisperStatus === "ok" || whisperStatus === "ok_retry" ? whisperTranscript : "",
           apple: appleStatus === "ok" || appleStatus === "ok_retry" ? appleTranscript : "",
-          windows_speech: windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry" ? windowsSpeechTranscript : "",
           colab_whisper: colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry" ? colabWhisperTranscript : "",
         }
       : {
           whisper: sttProvider === "whisper" && (whisperStatus === "ok" || whisperStatus === "ok_retry") ? whisperTranscript : "",
           apple: sttProvider === "apple" && (appleStatus === "ok" || appleStatus === "ok_retry") ? appleTranscript : "",
-          windows_speech: sttProvider === "windows_speech" && (windowsSpeechStatus === "ok" || windowsSpeechStatus === "ok_retry") ? windowsSpeechTranscript : "",
           colab_whisper: sttProvider === "colab_whisper" && (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") ? colabWhisperTranscript : "",
         };
     const providerScores = providerResults
       ? {
           whisper: getValidProviderScore(comparison, "Whisper", whisperStatus),
           apple: getValidProviderScore(comparison, "Apple", appleStatus),
-          windows_speech: getValidProviderScore(comparison, "Windows Speech", windowsSpeechStatus),
           colab_whisper: getValidProviderScore(comparison, "Colab Whisper", colabWhisperStatus),
         }
       : {
           whisper: sttProvider === "whisper" ? getValidProviderScore(comparison, "Whisper", whisperStatus) : "--",
           apple: sttProvider === "apple" ? getValidProviderScore(comparison, "Apple Speech", appleStatus) : "--",
-          windows_speech: sttProvider === "windows_speech" ? getValidProviderScore(comparison, "Windows Speech", windowsSpeechStatus) : "--",
           colab_whisper: sttProvider === "colab_whisper" ? getValidProviderScore(comparison, "Colab Whisper", colabWhisperStatus) : "--",
         };
     const providerStatuses = {
       whisper: whisperStatus,
       apple: appleStatus,
-      windows_speech: windowsSpeechStatus,
       colab_whisper: colabWhisperStatus,
     };
     const providerNotes = {
       whisper: whisperNote,
       apple: appleNote,
-      windows_speech: windowsSpeechNote,
       colab_whisper: colabWhisperNote,
     };
     const rawProviderTranscripts = {
       whisper: whisperTranscript,
       apple: appleTranscript,
-      windows_speech: windowsSpeechTranscript,
       colab_whisper: colabWhisperTranscript,
     };
     const providerTimingMs = {
       whisper: providerResults?._timings?.whisperMs || (sttProvider === "whisper" ? timingBreakdown[sttTimingLabel] || 0 : 0),
       apple: providerResults?._timings?.appleMs || (sttProvider === "apple" ? timingBreakdown[sttTimingLabel] || 0 : 0),
-      windows_speech: providerResults?._timings?.windowsSpeechMs || (sttProvider === "windows_speech" ? timingBreakdown[sttTimingLabel] || 0 : 0),
       colab_whisper: providerResults?._timings?.colabWhisperMs || (sttProvider === "colab_whisper" ? timingBreakdown[sttTimingLabel] || 0 : 0),
     };
     const structuredProviderResults = buildStructuredProviderResults({
@@ -1140,7 +1121,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const selectedScoringProvider = getSelectedScoringProvider(sttProvider, activeNativeProvider, providerStatuses);
     const fallbackUsed = false;
     const fallbackReason = "";
-    const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript, colabWhisperStatus, colabWhisperTranscript }));
+    const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, colabWhisperStatus, colabWhisperTranscript }));
     const teacherFeedback = buildTeacherFeedbackSummary(comparison, focusWord, audioSimilarity);
     const resultJson = buildCanonicalResult({
       root: ROOT,
@@ -1162,11 +1143,9 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       nativeProvider: activeNativeProvider,
       whisperStatus,
       appleStatus,
-      windowsSpeechStatus,
       colabWhisperStatus,
       whisperNote,
       appleNote,
-      windowsSpeechNote,
       colabWhisperNote,
       providerTranscripts,
       providerScores,
@@ -1231,8 +1210,6 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       whisperRecovered,
       appleStatus,
       appleNote,
-      windowsSpeechStatus,
-      windowsSpeechNote,
       colabWhisperStatus,
       colabWhisperNote,
       nativeProvider: activeNativeProvider,

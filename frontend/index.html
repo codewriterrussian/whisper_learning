@@ -49,6 +49,67 @@
           </label>
         </section>
 
+        <section id="firstLaunchGuide" class="welcome-card" hidden>
+          <div>
+            <h2>First launch guide</h2>
+            <p class="helper-text">The first check may download a speech recognition model. This can take a while. For first-time users, we recommend the faster model. You can switch to higher accuracy later.</p>
+          </div>
+          <ol>
+            <li>Allow microphone access when your browser asks.</li>
+            <li>Run System Check if setup feels stuck.</li>
+            <li>Record a short sentence first.</li>
+          </ol>
+          <div class="welcome-actions">
+            <button id="welcomeSystemCheckBtn" type="button" class="secondary compact-button">Open System Check</button>
+            <button id="dismissWelcomeBtn" type="button" class="dark compact-button">Got it</button>
+          </div>
+        </section>
+
+        <section class="settings-panel simple-settings">
+          <div class="section-heading compact">
+            <div>
+              <h2>Settings</h2>
+              <p class="helper-text">Simple Mode hides technical speech-recognition details.</p>
+            </div>
+            <button id="toggleAdvancedModeBtn" type="button" class="secondary compact-button">Advanced Mode</button>
+          </div>
+
+          <label class="field">
+            <span>Accuracy mode</span>
+            <select id="simpleAccuracyMode">
+              <option value="recommended" selected>Recommended</option>
+              <option value="fast">Fast</option>
+            </select>
+            <small class="field-help">Recommended is more accurate. Fast is better for a first test or slower computers.</small>
+          </label>
+
+          <label class="field">
+            <span>Native comparison</span>
+            <select id="simpleNativeComparison">
+              <option value="off">Off</option>
+              <option value="on">On when available</option>
+            </select>
+            <small id="simpleNativeHelp" class="field-help">Native comparison is optional. Whisper remains the main scorer.</small>
+          </label>
+
+          <button id="systemCheckBtn" type="button" class="secondary compact-button">System Check</button>
+        </section>
+
+        <section id="systemCheckPanel" class="system-check-panel" hidden>
+          <div class="section-heading compact">
+            <div>
+              <h2>System Check</h2>
+              <p id="systemCheckSummary" class="helper-text">Checking your computer...</p>
+            </div>
+            <button id="closeSystemCheckBtn" type="button" class="secondary compact-button">Close</button>
+          </div>
+          <div id="systemCheckList" class="system-check-list"></div>
+          <details class="developer-details">
+            <summary>Advanced details</summary>
+            <pre id="systemCheckRaw" class="code-box"></pre>
+          </details>
+        </section>
+
         <details class="settings-panel advanced-settings">
           <summary>Advanced STT Settings</summary>
           <label class="field">
@@ -66,10 +127,9 @@
             <span>Comparison mode</span>
             <select id="sttProvider">
               <option value="whisper" selected>Whisper only</option>
-              <option value="apple">Apple Speech only</option>
-              <option value="windows_speech">Windows Speech only</option>
+              <option value="apple">Apple STT only</option>
               <option value="colab_whisper">Colab Whisper GPU - experimental</option>
-              <option value="both">Comparison - Whisper + Native STT</option>
+              <option value="whisper_apple">Whisper + Apple STT</option>
             </select>
             <small id="sttProviderHelp" class="field-help">Whisper is default. Native STT options appear only when supported on this platform.</small>
             <small id="remoteSttWarning" class="field-help" hidden>
@@ -144,15 +204,18 @@
         </section>
 
         <div class="sticky-action-bar">
-          <button id="startBtn" type="button" class="primary recording-button">Start Recording</button>
-          <button id="stopBtn" type="button" class="danger recording-button" disabled hidden>Stop Recording</button>
-          <button id="cancelSubmissionBtn" type="button" class="danger utility-submit-button" disabled hidden>Cancel Submission</button>
-          <button id="checkSelectedBtn" type="button" class="primary check-button" disabled>
-            Check Selected Recording
-          </button>
+          <p id="stickySelectionStatus" class="sticky-selection-status">Selected: none</p>
+          <div class="sticky-action-buttons">
+            <button id="startBtn" type="button" class="primary recording-button">Start Recording</button>
+            <button id="stopBtn" type="button" class="danger recording-button" disabled hidden>Stop Recording</button>
+            <button id="cancelSubmissionBtn" type="button" class="danger utility-submit-button" disabled hidden>Cancel Submission</button>
+            <button id="checkSelectedBtn" type="button" class="primary check-button" disabled>
+              Check Selected Recording
+            </button>
+          </div>
         </div>
 
-        <p id="status" class="status">Ready.</p>
+        <p id="status" class="status">Ready</p>
       </section>
 
       <section class="result-panel card">
@@ -274,8 +337,8 @@
             Export Practice Report
           </button>
 
-          <details class="metrics-panel">
-            <summary>Technical similarity metrics</summary>
+          <details class="metrics-panel developer-details">
+            <summary>Advanced / Developer Details</summary>
             <dl>
               <div>
                 <dt>Exact-style ratio</dt>
@@ -310,7 +373,7 @@
 
           <details class="comparison-panel">
             <summary>Compare attempts</summary>
-            <p class="subtitle details-subtitle">Choose two checked attempts from this session.</p>
+            <p class="subtitle details-subtitle">Choose two checked attempts with the same language and target sentence.</p>
             <div class="compare-controls">
               <label>
                 First attempt

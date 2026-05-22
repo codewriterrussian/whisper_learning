@@ -13,11 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, STTProvider, WhisperProvider, WindowsSpeechProvider
+from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, STTProvider, WhisperProvider
 from scripts.audio_similarity import preprocess_audio
 
 DEFAULT_STT_PROVIDER = "whisper"
-ALLOWED_STT_PROVIDERS = {"whisper", "apple", "windows_speech", "colab_whisper", "both"}
+ALLOWED_STT_PROVIDERS = {"whisper", "apple", "colab_whisper", "both"}
 
 
 def get_platform_key(system_name: Optional[str] = None) -> str:
@@ -35,16 +35,12 @@ def get_native_provider_name(platform_key: Optional[str] = None) -> Optional[str
     current_platform = platform_key or get_platform_key()
     if current_platform == "darwin":
         return "apple"
-    if current_platform == "win32":
-        return "windows_speech"
     return None
 
 
 def get_native_provider_label(provider_name: Optional[str]) -> str:
     if provider_name == "apple":
         return "Apple"
-    if provider_name == "windows_speech":
-        return "Windows Speech"
     if provider_name == "colab_whisper":
         return "Colab Whisper"
     return "Native STT"
@@ -75,9 +71,6 @@ def get_provider(
 
     if normalized_provider == "apple":
         return AppleSpeechProvider(language=language)
-
-    if normalized_provider == "windows_speech":
-        return WindowsSpeechProvider(language=language)
 
     if normalized_provider == "colab_whisper":
         return ColabWhisperProvider(language=language, model_name=model_name, fast_mode=fast_mode)
@@ -132,9 +125,8 @@ def transcribe_both(
     result: dict[str, Any] = {
         "whisper": {"status": "pending", "transcript": "", "error": ""},
         "apple": {"status": "skipped", "transcript": "", "error": ""},
-        "windows_speech": {"status": "skipped", "transcript": "", "error": ""},
         "native_provider": native_provider or "",
-        "_timings": {"whisperMs": 0, "appleMs": 0, "windowsSpeechMs": 0, native_timing_key: 0},
+        "_timings": {"whisperMs": 0, "appleMs": 0, native_timing_key: 0},
     }
 
     def run_whisper() -> tuple[dict[str, Any], int]:
@@ -182,8 +174,6 @@ def transcribe_both(
             result["_timings"][native_timing_key] = native_ms
             if native_name == "apple":
                 result["_timings"]["appleMs"] = native_ms
-            if native_name == "windows_speech":
-                result["_timings"]["windowsSpeechMs"] = native_ms
 
     return result
 
@@ -204,7 +194,7 @@ def write_transcript_outputs(output_path: Path, stt_provider: str, transcript_re
 
     assert isinstance(transcript_result, str)
     output_path.write_text(f"{transcript_result}\n", encoding="utf-8")
-    if stt_provider in {"whisper", "apple", "windows_speech", "colab_whisper"}:
+    if stt_provider in {"whisper", "apple", "colab_whisper"}:
         provider_path = output_path.with_name(f"{output_path.stem}.{stt_provider}.txt")
         provider_path.write_text(f"{transcript_result}\n", encoding="utf-8")
 

@@ -78,7 +78,7 @@ def handle_request(payload: dict[str, Any]) -> Any:
             "error": "",
         }
     except Exception as error:
-        if provider in {"apple", "windows_speech", "colab_whisper"}:
+        if provider in {"apple", "colab_whisper"}:
             return {"status": "failed", "transcript": "", "error": str(error)}
         raise
 

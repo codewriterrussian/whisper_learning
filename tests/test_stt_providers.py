@@ -24,7 +24,7 @@ from scripts.stt_model import (  # noqa: E402
     get_provider,
     transcribe_both,
 )
-from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, WhisperProvider, WindowsSpeechProvider  # noqa: E402
+from scripts.stt_providers import AppleSpeechProvider, ColabWhisperProvider, WhisperProvider  # noqa: E402
 import scripts.stt_providers.whisper_provider as whisper_provider_module  # noqa: E402
 
 
@@ -46,11 +46,9 @@ class STTProviderTests(unittest.TestCase):
 
     def test_provider_selection(self) -> None:
         self.assertIn("both", ALLOWED_STT_PROVIDERS)
-        self.assertIn("windows_speech", ALLOWED_STT_PROVIDERS)
         self.assertIn("colab_whisper", ALLOWED_STT_PROVIDERS)
         self.assertIsInstance(get_provider("whisper"), WhisperProvider)
         self.assertIsInstance(get_provider("apple"), AppleSpeechProvider)
-        self.assertIsInstance(get_provider("windows_speech"), WindowsSpeechProvider)
         self.assertIsInstance(get_provider("colab_whisper"), ColabWhisperProvider)
 
     def test_platform_provider_availability(self) -> None:
@@ -58,17 +56,15 @@ class STTProviderTests(unittest.TestCase):
         self.assertEqual(get_platform_key("Windows"), "win32")
         self.assertEqual(get_platform_key("Linux"), "linux")
         self.assertEqual(get_native_provider_name("darwin"), "apple")
-        self.assertEqual(get_native_provider_name("win32"), "windows_speech")
+        self.assertIsNone(get_native_provider_name("win32"))
         self.assertIsNone(get_native_provider_name("linux"))
         self.assertEqual(get_available_stt_providers("darwin"), ["whisper", "apple", "both", "colab_whisper"])
-        self.assertEqual(get_available_stt_providers("win32"), ["whisper", "windows_speech", "both", "colab_whisper"])
+        self.assertEqual(get_available_stt_providers("win32"), ["whisper", "colab_whisper"])
         self.assertEqual(get_available_stt_providers("linux"), ["whisper", "colab_whisper"])
 
     def test_native_providers_disabled_off_platform(self) -> None:
         self.assertNotIn("apple", get_available_stt_providers("win32"))
         self.assertNotIn("apple", get_available_stt_providers("linux"))
-        self.assertNotIn("windows_speech", get_available_stt_providers("darwin"))
-        self.assertNotIn("windows_speech", get_available_stt_providers("linux"))
 
     def test_whisper_defaults_to_large_fast_mode(self) -> None:
         provider = get_provider("whisper")
@@ -435,28 +431,12 @@ class STTProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "macOS-only"):
             provider.transcribe("recordings/my_recording.wav")
 
-    def test_windows_speech_provider_clear_error_off_windows(self) -> None:
-        if platform.system() == "Windows":
-            self.skipTest("Non-Windows error path only.")
-
-        provider = get_provider("windows_speech")
-        with self.assertRaisesRegex(RuntimeError, "Windows-only"):
-            provider.transcribe("recordings/my_recording.wav")
-
     @unittest.skipUnless(platform.system() == "Darwin", "Apple Speech STT is macOS-only.")
     @unittest.skipUnless(os.environ.get("RUN_APPLE_STT_SMOKE") == "1", "Set RUN_APPLE_STT_SMOKE=1 to run Apple Speech.")
     def test_apple_provider_smoke(self) -> None:
         audio_path = ROOT / "recordings" / "my_recording.wav"
         self.assertTrue(audio_path.exists(), f"Missing smoke-test audio: {audio_path}")
         transcript = get_provider("apple").transcribe(str(audio_path))
-        self.assertIsInstance(transcript, str)
-
-    @unittest.skipUnless(platform.system() == "Windows", "Windows Speech STT is Windows-only.")
-    @unittest.skipUnless(os.environ.get("RUN_WINDOWS_STT_SMOKE") == "1", "Set RUN_WINDOWS_STT_SMOKE=1 to run Windows Speech.")
-    def test_windows_speech_provider_smoke(self) -> None:
-        audio_path = ROOT / "recordings" / "my_recording.wav"
-        self.assertTrue(audio_path.exists(), f"Missing smoke-test audio: {audio_path}")
-        transcript = get_provider("windows_speech").transcribe(str(audio_path))
         self.assertIsInstance(transcript, str)
 
 

@@ -20,8 +20,8 @@ On Windows:
 
 ## Guidelines
 
-- Keep Whisper as the default STT provider.
-- Keep Apple Speech and Windows Speech optional and platform-specific.
+- Keep Whisper as the primary STT provider.
+- Keep Apple STT optional and macOS-only; Windows defaults to Whisper only.
 - Do not commit generated recordings, transcripts, run outputs, model audio, or local cache files.
 - Keep public-facing UI text clear for beginner students.
 - Add tests for provider selection, platform behavior, storage paths, and invalid transcript handling when changing those areas.

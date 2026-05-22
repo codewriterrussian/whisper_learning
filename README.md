@@ -2,14 +2,23 @@
 
 A local-first pronunciation practice app for listening to model audio, recording attempts, checking speech-to-text transcripts, scoring word accuracy, and reviewing fluency/timing feedback. This release is a source-based local tool, not a hosted production service.
 
-Whisper is the default and recommended STT provider on every platform. Native system STT is optional and experimental:
+**New user? Start here: [README_BEGINNER.md](README_BEGINNER.md). It explains the app with double-click setup steps and no coding background required.**
 
-- macOS: Apple Speech
-- Windows: Windows Speech
+Whisper is the recommended STT provider on every platform. Platform defaults are:
+
+- macOS: Whisper + Apple STT. Whisper remains the main scoring provider; Apple STT is the native comparison provider.
+- Windows: Whisper only
 - Linux: Whisper only
 - Optional remote comparison: Google Colab GPU Whisper worker
 
 ## Setup
+
+Beginner launchers are available at the repo root:
+
+- macOS: double-click `setup_mac.command`, then `run_mac.command`
+- Windows: run `setup_windows.ps1`, then double-click `run_windows.bat`
+
+The rest of this section is for developer/manual setup.
 
 Requirements:
 
@@ -84,7 +93,6 @@ runs/<attemptId>/target.txt
 runs/<attemptId>/transcript.txt
 runs/<attemptId>/transcript.whisper.txt
 runs/<attemptId>/transcript.apple.txt
-runs/<attemptId>/transcript.windows_speech.txt
 runs/<attemptId>/transcript.colab_whisper.txt
 runs/<attemptId>/comparison.txt
 runs/<attemptId>/result.json
@@ -146,23 +154,24 @@ If `large-v3-turbo` is not supported by your installed `openai-whisper` package,
 
 macOS Apple Silicon:
 
-- Providers: Whisper, Apple Speech, Both
+- Default provider mode: Whisper + Apple STT
+- Providers: Whisper, Apple STT, Whisper + Apple STT
 - Devices: `mps`, `cpu`, or `auto`
 - `auto` prefers MPS when available
 
 Windows:
 
-- Providers: Whisper, Windows Speech, Both
+- Default provider mode: Whisper only
+- Providers: Whisper only, plus optional Colab Whisper when configured
 - Devices: `cuda`, `cpu`, or `auto`
 - `auto` prefers CUDA when available
-- Windows Speech is experimental and depends on installed Windows Speech recognizers
 
 Linux:
 
 - Providers: Whisper only
 - Devices: `cuda`, `cpu`, or `auto`
 - `auto` prefers CUDA when available
-- Native Apple/Windows STT options are hidden
+- Native STT options are hidden
 
 Optional Colab:
 
@@ -173,25 +182,14 @@ Optional Colab:
 
 MPS is never selected outside macOS. Native STT failures are reported with statuses such as `failed`, `unavailable`, `invalid`, or `skipped`; they are not shown as `0.0/100`.
 
-## Apple Speech STT
+## Apple STT
 
-Apple Speech is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It may require Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, VS Code, or PyCharm.
+Apple STT is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It may require Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, VS Code, or PyCharm.
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider apple \
   --language pl \
-  --output transcripts/my_recording.txt
-```
-
-## Windows Speech STT
-
-Windows Speech is Windows-only and experimental. It uses a PowerShell helper under `scripts/windows_speech_helper/` and requires a matching installed Windows Speech recognizer for the selected locale.
-
-```powershell
-python scripts/stt_model.py recordings/my_recording.wav `
-  --stt-provider windows_speech `
-  --language en `
   --output transcripts/my_recording.txt
 ```
 
@@ -206,7 +204,7 @@ The notebook uses a Cloudflare Quick Tunnel. Quick Tunnels create temporary `try
 GitHub-friendly Colab link placeholder:
 
 ```text
-https://colab.research.google.com/github/codewriterrussian/whisper_learning_private/blob/cross-platform-native-stt/notebooks/colab_whisper_worker.ipynb
+https://colab.research.google.com/github/<YOUR_GITHUB_USERNAME>/<YOUR_REPO_NAME>/blob/main/notebooks/colab_whisper_worker.ipynb
 ```
 
 Steps:
@@ -249,9 +247,9 @@ requests.get("http://127.0.0.1:7860/health").json()
 
 If local health works but no public URL appears, the issue is the Cloudflare tunnel step, not Whisper. If the notebook prints a `trycloudflare.com` URL but the public `/health` check temporarily fails with DNS or connection errors, wait 30-60 seconds and try the printed `COLAB_STT_URL` locally anyway. Quick Tunnel DNS can lag briefly after the URL is created. If it still fails locally, rerun only the tunnel cell to get a fresh temporary tunnel.
 
-## Both Provider Mode
+## Whisper + Apple STT Mode
 
-On platforms with a native provider, `both` checks the same recording with Whisper and native STT in parallel:
+On macOS, `both` checks the same recording with Whisper and Apple STT in parallel:
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
@@ -267,7 +265,6 @@ Outputs are provider-specific:
 ```text
 transcripts/my_recording.whisper.txt
 transcripts/my_recording.apple.txt
-transcripts/my_recording.windows_speech.txt
 transcripts/my_recording.colab_whisper.txt
 ```
 
@@ -312,7 +309,7 @@ Actual speed depends heavily on model, CPU/GPU, and whether the model is already
 - `large-v3-turbo`: fastest strict option when supported by your Whisper package, usually much faster than `large`.
 - Apple Silicon MPS can speed up Whisper on macOS, but CPU fallback remains supported.
 - NVIDIA CUDA can speed up Whisper on Windows/Linux when the installed PyTorch build supports CUDA.
-- AMD GPUs on Windows generally fall back to CPU in this repo; Windows Speech can still be used as native comparison STT.
+- AMD GPUs on Windows generally fall back to CPU in this repo.
 
 ## Practice Features
 
@@ -361,7 +358,7 @@ Heute übe ich deutliches Sprechen, langsames Tempo und natürlichen Rhythmus.
 macOS startup:
 
 - macOS users can normally run `./run_web_app.sh`.
-- The launcher prefers `/Users/bladeruuner/opt/anaconda3/envs/stt_whisper/bin/python`, then `$HOME/opt/anaconda3/envs/stt_whisper/bin/python`, then `$HOME/miniforge3/envs/stt_whisper/bin/python`.
+- The launcher prefers `PYTHON` if you set it, then the repo-local `.venv`, then common user-level Conda/Miniforge environment paths, then `python3` or `python` on `PATH`.
 - If the wrong Python is selected, start with `PYTHON=/path/to/env/bin/python ./run_web_app.sh`.
 - If dependencies are missing, the launcher stops early and prints the selected Python plus the missing packages.
 
@@ -400,8 +397,7 @@ Browser points to the wrong backend URL:
 
 - This is a local practice tool, not a clinical speech assessment system.
 - STT scores measure whether an STT engine understood the words; they are not a complete pronunciation diagnosis.
-- Apple Speech and Windows Speech are experimental comparison providers.
-- Windows Speech depends on installed Windows recognizers for the target locale.
+- Apple STT is the only native comparison provider and is macOS-only.
 - Colab Whisper is remote and experimental; audio leaves your computer when enabled.
 - Docker is not currently a supported release target. Apple Speech and MPS should not be expected to work inside Docker.
 - Browser and microphone behavior vary by OS and browser; use `MANUAL_QA.md` before publishing a release.
@@ -442,5 +438,4 @@ Optional native STT smoke tests:
 
 ```bash
 RUN_APPLE_STT_SMOKE=1 python -m unittest tests.test_stt_providers.STTProviderTests.test_apple_provider_smoke
-RUN_WINDOWS_STT_SMOKE=1 python -m unittest tests.test_stt_providers.STTProviderTests.test_windows_speech_provider_smoke
 ```
