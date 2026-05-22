@@ -19,7 +19,7 @@ const DEFAULT_WHISPER_MODEL = "large";
 const ALLOWED_LANGUAGES = new Set(["en", "de", "nl", "pl", "ru", "ja", "vi", "zh"]);
 const ALLOWED_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo"]);
 const ALLOWED_WHISPER_DEVICES = new Set(["auto", "cpu", "mps", "cuda"]);
-const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "windows_speech", "colab_whisper", "both"]);
+const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "windows_speech", "windows", "colab_whisper", "both", "whisper+windows"]);
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 25) * 1024 * 1024;
 const ALLOWED_AUDIO_EXTENSIONS = new Set([".webm", ".wav", ".m4a", ".mp3", ".ogg"]);
 const ALLOWED_AUDIO_MIME_PREFIXES = ["audio/"];
@@ -222,24 +222,34 @@ function normalizeWhisperDevice(device) {
 }
 
 function normalizeSttProvider(provider) {
-  if (!ALLOWED_STT_PROVIDERS.has(provider)) {
+  const requestedProvider = String(provider || DEFAULT_STT_PROVIDER).toLowerCase();
+  const providerAlias = requestedProvider === "windows"
+    ? "windows_speech"
+    : requestedProvider === "whisper+windows"
+      ? "both"
+      : requestedProvider;
+
+  if (!ALLOWED_STT_PROVIDERS.has(requestedProvider) || !ALLOWED_STT_PROVIDERS.has(providerAlias)) {
     return DEFAULT_STT_PROVIDER;
   }
 
   const nativeProvider = getNativeProvider();
-  if (provider === "apple" && nativeProvider !== "apple") {
+  if (providerAlias === "apple" && nativeProvider !== "apple") {
     return DEFAULT_STT_PROVIDER;
   }
-  if (provider === "windows_speech" && nativeProvider !== "windows_speech") {
+  if (providerAlias === "windows_speech" && nativeProvider !== "windows_speech") {
     return DEFAULT_STT_PROVIDER;
   }
-  if (provider === "colab_whisper") {
-    return provider;
-  }
-  if (provider === "both" && !nativeProvider) {
+  if (requestedProvider === "whisper+windows" && nativeProvider !== "windows_speech") {
     return DEFAULT_STT_PROVIDER;
   }
-  return provider;
+  if (providerAlias === "colab_whisper") {
+    return providerAlias;
+  }
+  if (providerAlias === "both" && !nativeProvider) {
+    return DEFAULT_STT_PROVIDER;
+  }
+  return providerAlias;
 }
 
 function getMetric(text, label) {
@@ -272,7 +282,7 @@ function normalizeTranscriptText(text) {
     .replace(/\s+/gu, " ");
 }
 
-function getTranscriptValidationDebug(providerName, transcript, reason = "") {
+function getTranscriptValidationDebug(providerName, transcript, reason = "", attemptId = "") {
   const text = String(transcript || "");
   const normalized = normalizeTranscriptText(text);
   const nonSpaceChars = Array.from(text).filter((char) => !/\s/u.test(char));
@@ -282,6 +292,7 @@ function getTranscriptValidationDebug(providerName, transcript, reason = "") {
   const alphabeticCount = Array.from(normalized).filter((char) => /\p{L}/u.test(char)).length;
   return [
     "[transcript-validation]",
+    attemptId ? `attemptId=${attemptId}` : "",
     `provider=${providerName}`,
     `raw=${JSON.stringify(text)}`,
     `normalized=${JSON.stringify(normalized)}`,
@@ -289,7 +300,25 @@ function getTranscriptValidationDebug(providerName, transcript, reason = "") {
     `symbol_ratio=${symbolRatio.toFixed(3)}`,
     `words=${JSON.stringify(words)}`,
     `invalid_reason=${JSON.stringify(reason)}`,
-  ].join(" ");
+  ].filter(Boolean).join(" ");
+}
+
+const LOW_OVERLAP_STOP_WORDS = new Set(["a", "an", "and", "or", "the", "to", "of", "in", "on", "with", "for", "is", "are", "am", "i", "you", "he", "she", "it", "we", "they", "will"]);
+
+function getContentWords(text) {
+  const words = normalizeTranscriptText(text).match(/[\p{L}\p{N}_]+/gu) || [];
+  const contentWords = words.filter((word) => !LOW_OVERLAP_STOP_WORDS.has(word));
+  return contentWords.length ? contentWords : words;
+}
+
+function getWordOverlap(targetText, transcript) {
+  const targetWords = new Set(getContentWords(targetText));
+  const transcriptWords = new Set(getContentWords(transcript));
+  if (!targetWords.size || !transcriptWords.size) {
+    return { ratio: 0, overlap: 0, targetCount: targetWords.size, transcriptCount: transcriptWords.size };
+  }
+  const overlap = [...targetWords].filter((word) => transcriptWords.has(word)).length;
+  return { ratio: overlap / targetWords.size, overlap, targetCount: targetWords.size, transcriptCount: transcriptWords.size };
 }
 
 function validateTranscript(transcript) {
@@ -327,17 +356,30 @@ function validateTranscript(transcript) {
   return { status: "ok", reason: "" };
 }
 
-function applyTranscriptValidation(providerName, status, transcript, note = "") {
+function applyTranscriptValidation(providerName, status, transcript, note = "", { targetText = "", attemptId = "" } = {}) {
   if (status !== "ok" && status !== "ok_retry") {
-    console.log(getTranscriptValidationDebug(providerName, transcript, note || status));
+    if (status !== "skipped") {
+      console.log(getTranscriptValidationDebug(providerName, transcript, note || status, attemptId));
+    }
     return { status, note };
   }
 
   const validation = validateTranscript(transcript);
-  console.log(getTranscriptValidationDebug(providerName, transcript, validation.reason));
   if (validation.status !== "ok") {
+    console.log(getTranscriptValidationDebug(providerName, transcript, validation.reason, attemptId));
     return { status: "invalid", note: validation.reason };
   }
+
+  if (targetText) {
+    const overlap = getWordOverlap(targetText, transcript);
+    if (overlap.targetCount >= 4 && overlap.ratio < 0.34) {
+      const reason = `low_word_overlap (${overlap.overlap}/${overlap.targetCount})`;
+      console.log(getTranscriptValidationDebug(providerName, transcript, reason, attemptId));
+      return { status: "low_confidence", note: reason };
+    }
+  }
+
+  console.log(getTranscriptValidationDebug(providerName, transcript, "", attemptId));
 
   return { status, note };
 }
@@ -565,6 +607,53 @@ function getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, a
   return "";
 }
 
+function getSelectedScoringProvider(sttProvider, nativeProvider, statuses) {
+  if (sttProvider === "whisper") {
+    return statuses.whisper === "ok" || statuses.whisper === "ok_retry" ? "whisper" : "";
+  }
+  if (sttProvider === "windows_speech") {
+    return statuses.windows_speech === "ok" || statuses.windows_speech === "ok_retry" ? "windows_speech" : "";
+  }
+  if (sttProvider === "apple") {
+    return statuses.apple === "ok" || statuses.apple === "ok_retry" ? "apple" : "";
+  }
+  if (sttProvider === "colab_whisper") {
+    return statuses.colab_whisper === "ok" || statuses.colab_whisper === "ok_retry" ? "colab_whisper" : "";
+  }
+  if (sttProvider === "both") {
+    if (statuses.whisper === "ok" || statuses.whisper === "ok_retry") {
+      return "whisper";
+    }
+    if (nativeProvider && (statuses[nativeProvider] === "ok" || statuses[nativeProvider] === "ok_retry")) {
+      return nativeProvider;
+    }
+  }
+  return "";
+}
+
+function getAttemptedProviders(sttProvider, nativeProvider) {
+  if (sttProvider === "both") {
+    return nativeProvider ? ["whisper", nativeProvider] : ["whisper"];
+  }
+  return [sttProvider];
+}
+
+function buildStructuredProviderResults({ statuses, notes, transcripts, scores, timings }) {
+  const results = Object.fromEntries(["whisper", "apple", "windows_speech", "colab_whisper"].map((provider) => [
+    provider,
+    {
+      status: statuses[provider] || "skipped",
+      rawTranscript: transcripts[provider] || "",
+      normalizedTranscript: normalizeTranscriptText(transcripts[provider] || ""),
+      score: scores[provider] || "--",
+      invalidReason: notes[provider] || "",
+      timingMs: timings[provider] || 0,
+    },
+  ]));
+  results.windows = results.windows_speech;
+  return results;
+}
+
 function getFocusWord(targetText, transcript) {
   const targetWords = targetText.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
   const transcriptWords = new Set(transcript.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
@@ -740,6 +829,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     logAttempt(attemptId, "practice request started");
 
     let language = normalizeLanguage(req.body.language);
+    const requestedProvider = String(req.body.sttProvider || DEFAULT_STT_PROVIDER);
     const sttProvider = normalizeSttProvider(req.body.sttProvider);
     const nativeProvider = getNativeProvider();
     const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "windows_speech" || sttProvider === "colab_whisper" ? sttProvider : "");
@@ -891,16 +981,16 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       windowsSpeechNote = providerResults.windows_speech?.error || "";
     }
 
-    const checkedWhisper = applyTranscriptValidation("Whisper", whisperStatus, whisperTranscript, whisperNote);
+    const checkedWhisper = applyTranscriptValidation("Whisper", whisperStatus, whisperTranscript, whisperNote, { targetText, attemptId });
     whisperStatus = checkedWhisper.status;
     whisperNote = checkedWhisper.note;
-    const checkedApple = applyTranscriptValidation("Apple", appleStatus, appleTranscript, appleNote);
+    const checkedApple = applyTranscriptValidation("Apple", appleStatus, appleTranscript, appleNote, { targetText, attemptId });
     appleStatus = checkedApple.status;
     appleNote = checkedApple.note;
-    const checkedWindowsSpeech = applyTranscriptValidation("Windows Speech", windowsSpeechStatus, windowsSpeechTranscript, windowsSpeechNote);
+    const checkedWindowsSpeech = applyTranscriptValidation("Windows Speech", windowsSpeechStatus, windowsSpeechTranscript, windowsSpeechNote, { targetText, attemptId });
     windowsSpeechStatus = checkedWindowsSpeech.status;
     windowsSpeechNote = checkedWindowsSpeech.note;
-    const checkedColabWhisper = applyTranscriptValidation("Colab Whisper", colabWhisperStatus, colabWhisperTranscript, colabWhisperNote);
+    const checkedColabWhisper = applyTranscriptValidation("Colab Whisper", colabWhisperStatus, colabWhisperTranscript, colabWhisperNote, { targetText, attemptId });
     colabWhisperStatus = checkedColabWhisper.status;
     colabWhisperNote = checkedColabWhisper.note;
 
@@ -1015,6 +1105,41 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
           windows_speech: sttProvider === "windows_speech" ? getValidProviderScore(comparison, "Windows Speech", windowsSpeechStatus) : "--",
           colab_whisper: sttProvider === "colab_whisper" ? getValidProviderScore(comparison, "Colab Whisper", colabWhisperStatus) : "--",
         };
+    const providerStatuses = {
+      whisper: whisperStatus,
+      apple: appleStatus,
+      windows_speech: windowsSpeechStatus,
+      colab_whisper: colabWhisperStatus,
+    };
+    const providerNotes = {
+      whisper: whisperNote,
+      apple: appleNote,
+      windows_speech: windowsSpeechNote,
+      colab_whisper: colabWhisperNote,
+    };
+    const rawProviderTranscripts = {
+      whisper: whisperTranscript,
+      apple: appleTranscript,
+      windows_speech: windowsSpeechTranscript,
+      colab_whisper: colabWhisperTranscript,
+    };
+    const providerTimingMs = {
+      whisper: providerResults?._timings?.whisperMs || (sttProvider === "whisper" ? timingBreakdown[sttTimingLabel] || 0 : 0),
+      apple: providerResults?._timings?.appleMs || (sttProvider === "apple" ? timingBreakdown[sttTimingLabel] || 0 : 0),
+      windows_speech: providerResults?._timings?.windowsSpeechMs || (sttProvider === "windows_speech" ? timingBreakdown[sttTimingLabel] || 0 : 0),
+      colab_whisper: providerResults?._timings?.colabWhisperMs || (sttProvider === "colab_whisper" ? timingBreakdown[sttTimingLabel] || 0 : 0),
+    };
+    const structuredProviderResults = buildStructuredProviderResults({
+      statuses: providerStatuses,
+      notes: providerNotes,
+      transcripts: rawProviderTranscripts,
+      scores: providerScores,
+      timings: providerTimingMs,
+    });
+    const attemptedProviders = getAttemptedProviders(sttProvider, activeNativeProvider);
+    const selectedScoringProvider = getSelectedScoringProvider(sttProvider, activeNativeProvider, providerStatuses);
+    const fallbackUsed = false;
+    const fallbackReason = "";
     const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, windowsSpeechStatus, windowsSpeechTranscript, colabWhisperStatus, colabWhisperTranscript }));
     const teacherFeedback = buildTeacherFeedbackSummary(comparison, focusWord, audioSimilarity);
     const resultJson = buildCanonicalResult({
@@ -1028,6 +1153,12 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       whisperDevice,
       sttProvider,
       providerMode: sttProvider,
+      requestedProvider,
+      attemptedProviders,
+      selectedScoringProvider,
+      fallbackUsed,
+      fallbackReason,
+      structuredProviderResults,
       nativeProvider: activeNativeProvider,
       whisperStatus,
       appleStatus,
@@ -1047,6 +1178,33 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     if (!fs.existsSync(autoTrimmedPath)) {
       resultJson.files.autoTrimmedWav = "";
     }
+    fs.writeFileSync(runPaths.providerTranscriptsJsonPath, `${JSON.stringify({
+      attemptId,
+      requestedProvider,
+      providerMode: sttProvider,
+      attemptedProviders,
+      selectedScoringProvider,
+      rawTranscripts: rawProviderTranscripts,
+      scoringTranscripts: providerTranscripts,
+      providerResults: structuredProviderResults,
+    }, null, 2)}\n`, "utf8");
+    fs.writeFileSync(runPaths.scoringResultJsonPath, `${JSON.stringify({
+      attemptId,
+      requestedProvider,
+      providerMode: sttProvider,
+      attemptedProviders,
+      selectedScoringProvider,
+      fallbackUsed,
+      fallbackReason,
+      statuses: providerStatuses,
+      scores: providerScores,
+      providerResults: structuredProviderResults,
+    }, null, 2)}\n`, "utf8");
+    fs.writeFileSync(runPaths.timingJsonPath, `${JSON.stringify({
+      attemptId,
+      providerTimingMs,
+      timingBreakdown,
+    }, null, 2)}\n`, "utf8");
     fs.writeFileSync(resultJsonPath, `${JSON.stringify(resultJson, null, 2)}\n`, "utf8");
 
     res.json({
@@ -1056,6 +1214,12 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       language,
       sttProvider,
       providerMode: sttProvider,
+      requestedProvider,
+      attemptedProviders,
+      selectedScoringProvider,
+      providerResults: structuredProviderResults,
+      fallbackUsed,
+      fallbackReason,
       whisperModel,
       whisperDevice,
       targetText,

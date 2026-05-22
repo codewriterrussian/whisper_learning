@@ -140,7 +140,6 @@ def format_single_result(
     provider_note: str = "",
 ) -> str:
     validation = validate_transcript(transcript_raw) if provider_status in {"ok", "ok_retry"} else TranscriptValidation(provider_status, provider_note)
-    print(get_transcript_validation_debug(provider_label, transcript_raw, validation.reason), file=sys.stderr)
     valid_transcript = validation.status == "ok"
     score = score_transcript(target_raw, transcript_raw) if valid_transcript else None
     target = normalize(target_raw)
@@ -234,12 +233,10 @@ def format_combined_result(
 ) -> str:
     if whisper_status in {"ok", "ok_retry"}:
         whisper_validation = validate_transcript(whisper_transcript)
-        print(get_transcript_validation_debug("Whisper", whisper_transcript, whisper_validation.reason), file=sys.stderr)
         whisper_status = whisper_status if whisper_validation.status == "ok" else whisper_validation.status
         whisper_note = whisper_validation.reason
     if apple_status in {"ok", "ok_retry"}:
         apple_validation = validate_transcript(apple_transcript)
-        print(get_transcript_validation_debug(native_provider_name, apple_transcript, apple_validation.reason), file=sys.stderr)
         apple_status = apple_status if apple_validation.status == "ok" else apple_validation.status
         apple_note = apple_validation.reason
 

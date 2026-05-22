@@ -28,6 +28,13 @@ test("settings are platform-aware in frontend source", () => {
   assert.match(mainJs, /Whisper not used in this mode/);
 });
 
+test("result UI explains deterministic provider scoring", () => {
+  assert.match(mainJs, /Score from:/);
+  assert.match(mainJs, /selectedScoringProvider/);
+  assert.match(mainJs, /low confidence and was not scored/);
+  assert.match(mainJs, /Windows Speech did not return a transcript/);
+});
+
 test("clear local data UI is wired", () => {
   assert.match(html, /id="clearLocalDataBtn"/);
   assert.match(mainJs, /api\/local-data/);
