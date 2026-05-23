@@ -49,16 +49,30 @@ if ($LASTEXITCODE -ne 0) {
   Stop-WithHelp "Python packages could not be installed." "Try running: python -m pip install -r requirements.txt"
 }
 
+if (-not (Test-Path (Join-Path $Root "backend\package.json"))) {
+  Stop-WithHelp "Backend package.json is missing." "Expected to find backend\package.json in this app folder."
+}
+
+if (-not (Test-Path (Join-Path $Root "frontend\package.json"))) {
+  Stop-WithHelp "Frontend package.json is missing." "Expected to find frontend\package.json in this app folder."
+}
+
 Write-Host "Installing backend packages..."
-& $NpmCommand.Source --prefix backend install
-if ($LASTEXITCODE -ne 0) {
-  Stop-WithHelp "Backend packages could not be installed." "Check your internet connection and run setup again."
+Push-Location backend
+& $NpmCommand.Source install
+$NpmExitCode = $LASTEXITCODE
+Pop-Location
+if ($NpmExitCode -ne 0) {
+  Stop-WithHelp "Backend packages could not be installed." "npm failed inside backend."
 }
 
 Write-Host "Installing frontend packages..."
-& $NpmCommand.Source --prefix frontend install
-if ($LASTEXITCODE -ne 0) {
-  Stop-WithHelp "Frontend packages could not be installed." "Check your internet connection and run setup again."
+Push-Location frontend
+& $NpmCommand.Source install
+$NpmExitCode = $LASTEXITCODE
+Pop-Location
+if ($NpmExitCode -ne 0) {
+  Stop-WithHelp "Frontend packages could not be installed." "npm failed inside frontend."
 }
 
 Write-Host ""

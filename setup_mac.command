@@ -42,11 +42,19 @@ say_step "Installing Python packages"
 echo "This may take a while. Whisper may download a model the first time you check a recording."
 "$PYTHON_BIN" -m pip install -r requirements.txt || stop_with_help "Python packages could not be installed." "Try opening Terminal here and running: python3 -m pip install -r requirements.txt"
 
+if [ ! -f "$ROOT/backend/package.json" ]; then
+  stop_with_help "Backend package.json is missing." "Expected to find $ROOT/backend/package.json"
+fi
+
+if [ ! -f "$ROOT/frontend/package.json" ]; then
+  stop_with_help "Frontend package.json is missing." "Expected to find $ROOT/frontend/package.json"
+fi
+
 say_step "Installing backend packages"
-npm --prefix backend install || stop_with_help "Backend packages could not be installed." "Check your internet connection and run setup again."
+( cd "$ROOT/backend" || exit 1; npm install ) || stop_with_help "Backend packages could not be installed." "npm failed inside backend."
 
 say_step "Installing frontend packages"
-npm --prefix frontend install || stop_with_help "Frontend packages could not be installed." "Check your internet connection and run setup again."
+( cd "$ROOT/frontend" || exit 1; npm install ) || stop_with_help "Frontend packages could not be installed." "npm failed inside frontend."
 
 say_step "Running system check"
 node scripts/doctor.js || true
