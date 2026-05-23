@@ -1,3 +1,9 @@
+<!-- Language Switcher -->
+<p align="right">
+  <a href="./README.md">English</a> |
+  <a href="./README_zh-TW.md">繁體中文</a>
+</p>
+
 # Whisper Speaking Practice
 
 A local-first pronunciation practice app for listening to model audio, recording attempts, checking speech-to-text transcripts, scoring word accuracy, and reviewing fluency/timing feedback. This release is a source-based local tool, not a hosted production service.
