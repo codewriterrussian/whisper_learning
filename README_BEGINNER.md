@@ -1,3 +1,9 @@
+<!-- Language Switcher -->
+<p align="right">
+  <a href="./README_BEGINNER.md">English</a> |
+  <a href="./README_BEGINNER_zh-TW.md">繁體中文</a>
+</p>
+
 # Whisper Speaking Practice: Start Here
 
 This guide is for people who do not code.
