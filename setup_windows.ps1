@@ -29,6 +29,46 @@ function Update-CurrentPath {
   $env:Path = "$MachinePath;$UserPath"
 }
 
+function Add-FfmpegToPath {
+  if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    return $true
+  }
+
+  $CandidatePaths = @(
+    (Join-Path $env:ProgramFiles "ffmpeg\bin\ffmpeg.exe"),
+    (Join-Path $env:ProgramFiles "Gyan\FFmpeg\bin\ffmpeg.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "ffmpeg\bin\ffmpeg.exe"),
+    "C:\ProgramData\chocolatey\bin\ffmpeg.exe",
+    "C:\ffmpeg\bin\ffmpeg.exe"
+  )
+
+  foreach ($CandidatePath in $CandidatePaths) {
+    if ($CandidatePath -and (Test-Path $CandidatePath)) {
+      $env:Path = "$((Get-Item $CandidatePath).DirectoryName);$env:Path"
+      return $true
+    }
+  }
+
+  $SearchRoots = @(
+    (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"),
+    "C:\ffmpeg"
+  )
+
+  foreach ($SearchRoot in $SearchRoots) {
+    if (-not $SearchRoot -or -not (Test-Path $SearchRoot)) {
+      continue
+    }
+
+    $FfmpegExe = Get-ChildItem -Path $SearchRoot -Filter ffmpeg.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($FfmpegExe) {
+      $env:Path = "$($FfmpegExe.DirectoryName);$env:Path"
+      return $true
+    }
+  }
+
+  return $false
+}
+
 $WingetCommand = Get-Command winget -ErrorAction SilentlyContinue
 
 $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
@@ -57,6 +97,7 @@ if (-not $NodeCommand -or -not $NpmCommand) {
   Stop-WithHelp "Node.js/npm is missing." "Please install Node.js LTS from https://nodejs.org/ and restart PowerShell."
 }
 
+Add-FfmpegToPath | Out-Null
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
   Write-Host "Installing FFmpeg..."
   if (-not $WingetCommand) {
@@ -67,6 +108,7 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Stop-WithHelp "FFmpeg could not be installed." "winget failed while installing FFmpeg. Try running: winget install Gyan.FFmpeg"
   }
   Update-CurrentPath
+  Add-FfmpegToPath | Out-Null
   if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Stop-WithHelp "FFmpeg was installed but is not available." "Restart PowerShell or your computer, then run setup_windows.ps1 again."
   }

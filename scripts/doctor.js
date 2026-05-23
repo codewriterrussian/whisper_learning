@@ -23,6 +23,97 @@ function commandExists(command, args = ["--version"]) {
   }
 }
 
+function findFileRecursive(root, filename, maxDepth = 6) {
+  if (!root || !fs.existsSync(root)) {
+    return "";
+  }
+
+  const queue = [{ dir: root, depth: 0 }];
+  while (queue.length) {
+    const { dir, depth } = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_error) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name.toLowerCase() === filename.toLowerCase()) {
+        return fullPath;
+      }
+      if (entry.isDirectory() && depth < maxDepth) {
+        queue.push({ dir: fullPath, depth: depth + 1 });
+      }
+    }
+  }
+
+  return "";
+}
+
+function findFfmpegCommand() {
+  const ffmpeg = commandExists("ffmpeg");
+  if (ffmpeg.ok) {
+    return { command: "ffmpeg", detail: ffmpeg.detail };
+  }
+
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  const candidatePaths = [
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "ffmpeg", "bin", "ffmpeg.exe") : "",
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "Gyan", "FFmpeg", "bin", "ffmpeg.exe") : "",
+    process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "ffmpeg", "bin", "ffmpeg.exe") : "",
+    "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe",
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+  ];
+  const searchRoots = [
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Packages") : "",
+    "C:\\ffmpeg",
+  ];
+
+  for (const ffmpegPath of candidatePaths) {
+    if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
+      continue;
+    }
+    const result = spawnSync(ffmpegPath, ["--version"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      shell: false,
+      timeout: 8000,
+    });
+    if (result.status === 0) {
+      const detail = (result.stdout || result.stderr || "").split(/\r?\n/)[0].trim();
+      process.env.Path = `${path.dirname(ffmpegPath)};${process.env.Path || ""}`;
+      process.env.PATH = `${path.dirname(ffmpegPath)};${process.env.PATH || ""}`;
+      return { command: ffmpegPath, detail: detail || ffmpegPath };
+    }
+  }
+
+  for (const root of searchRoots) {
+    const ffmpegPath = findFileRecursive(root, "ffmpeg.exe");
+    if (!ffmpegPath) {
+      continue;
+    }
+    const result = spawnSync(ffmpegPath, ["--version"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      shell: false,
+      timeout: 8000,
+    });
+    if (result.status === 0) {
+      const detail = (result.stdout || result.stderr || "").split(/\r?\n/)[0].trim();
+      process.env.Path = `${path.dirname(ffmpegPath)};${process.env.Path || ""}`;
+      process.env.PATH = `${path.dirname(ffmpegPath)};${process.env.PATH || ""}`;
+      return { command: ffmpegPath, detail: detail || ffmpegPath };
+    }
+  }
+
+  return null;
+}
+
 function getPythonCommand() {
   if (process.env.PYTHON) {
     return { command: process.env.PYTHON, args: [] };
@@ -106,7 +197,10 @@ function runDoctor() {
     : { ok: false, detail: "" };
   const node = commandExists("node");
   const npm = commandExists(process.platform === "win32" ? "npm.cmd" : "npm");
-  const ffmpeg = commandExists("ffmpeg");
+  const ffmpegCommand = findFfmpegCommand();
+  const ffmpeg = ffmpegCommand
+    ? { ok: true, detail: ffmpegCommand.detail }
+    : { ok: false, detail: "" };
   const whisper = runPythonSnippet(pythonCommand, "import whisper; print('openai-whisper available')");
   const backendDeps = status(fs.existsSync(path.join(ROOT, "backend", "node_modules")), "backend/node_modules", "Run the setup script first.");
   const frontendDeps = status(fs.existsSync(path.join(ROOT, "frontend", "node_modules")), "frontend/node_modules", "Run the setup script first.");

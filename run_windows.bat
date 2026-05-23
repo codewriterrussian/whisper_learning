@@ -11,6 +11,10 @@ if "%WHISPER_DEVICE%"=="" set WHISPER_DEVICE=auto
 if "%WHISPER_WARMUP%"=="" set WHISPER_WARMUP=0
 if "%STT_LANGUAGE_AUTO_OVERRIDE%"=="" set STT_LANGUAGE_AUTO_OVERRIDE=0
 if "%PYTHON%"=="" if exist "%~dp0.venv\Scripts\python.exe" set PYTHON=%~dp0.venv\Scripts\python.exe
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+  for /f "delims=" %%F in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$candidates=@($env:ProgramFiles + '\ffmpeg\bin\ffmpeg.exe', $env:ProgramFiles + '\Gyan\FFmpeg\bin\ffmpeg.exe', ${env:ProgramFiles(x86)} + '\ffmpeg\bin\ffmpeg.exe', 'C:\ProgramData\chocolatey\bin\ffmpeg.exe', 'C:\ffmpeg\bin\ffmpeg.exe'); foreach ($candidate in $candidates) { if ($candidate -and (Test-Path $candidate)) { Split-Path -Parent $candidate; exit } }; $roots=@($env:LOCALAPPDATA + '\Microsoft\WinGet\Packages', 'C:\ffmpeg'); foreach ($root in $roots) { if ($root -and (Test-Path $root)) { $match = Get-ChildItem -Path $root -Filter ffmpeg.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($match) { Split-Path -Parent $match.FullName; break } } }"') do set "PATH=%%F;%PATH%"
+)
 
 echo App is starting...
 echo You can close the backend and frontend windows to stop the app.
