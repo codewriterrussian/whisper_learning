@@ -18,7 +18,9 @@ Beginner launchers are available at the repo root:
 - macOS: double-click `setup_mac.command`. After setup finishes, double-click `run_mac.command`.
 - Windows: right-click `setup_windows.ps1` and choose **Run with PowerShell**. After setup finishes, double-click `run_windows.bat`.
 
-The setup launcher creates `.venv`, upgrades pip, installs Python packages, installs backend/frontend npm packages, and tries to install FFmpeg if it is missing. On macOS, automatic FFmpeg install requires Homebrew. On Windows, automatic FFmpeg install requires `winget`.
+The setup launcher tries to install Python and FFmpeg if they are missing, creates `.venv`, upgrades pip, installs Python packages including `openai-whisper`, and installs backend/frontend npm packages. On macOS, automatic Python/FFmpeg install requires Homebrew. On Windows, automatic Python/FFmpeg install requires `winget`.
+
+Whisper model files are downloaded automatically the first time the app needs them. This can take a while and needs enough disk space for the selected model.
 
 If Windows blocks the setup script, open PowerShell and run:
 

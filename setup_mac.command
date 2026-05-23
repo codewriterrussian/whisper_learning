@@ -24,7 +24,18 @@ if command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python)"
 else
-  stop_with_help "Python is missing." "Please install Python 3.10 or newer from https://www.python.org/downloads/"
+  say_step "Installing Python"
+  if ! command -v brew >/dev/null 2>&1; then
+    stop_with_help "Python is missing." "Install Homebrew from https://brew.sh/ and then double-click setup_mac.command again."
+  fi
+  brew install python || stop_with_help "Python could not be installed." "Homebrew failed while installing Python. Try opening Terminal here and running: brew install python"
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+  else
+    stop_with_help "Python was installed but is not available." "Close this window, open a new Terminal, and run: brew install python"
+  fi
 fi
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
@@ -51,6 +62,7 @@ say_step "Installing Python packages"
 echo "This may take a while. Whisper may download a model the first time you check a recording."
 "$VENV_PYTHON" -m pip install -U pip || stop_with_help "pip could not be upgraded." "Try opening Terminal here and running: .venv/bin/python -m pip install -U pip"
 "$VENV_PYTHON" -m pip install -r requirements.txt || stop_with_help "Python packages could not be installed." "Try opening Terminal here and running: .venv/bin/python -m pip install -r requirements.txt"
+export PYTHON="$VENV_PYTHON"
 
 if [ ! -f "$ROOT/backend/package.json" ]; then
   stop_with_help "Backend package.json is missing." "Expected to find $ROOT/backend/package.json"

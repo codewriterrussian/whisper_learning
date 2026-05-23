@@ -25,33 +25,37 @@ function commandExists(command, args = ["--version"]) {
 
 function getPythonCommand() {
   if (process.env.PYTHON) {
-    return process.env.PYTHON;
+    return { command: process.env.PYTHON, args: [] };
+  }
+  const venvPython = process.platform === "win32"
+    ? path.join(ROOT, ".venv", "Scripts", "python.exe")
+    : path.join(ROOT, ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return { command: venvPython, args: [] };
   }
   if (process.platform === "win32") {
     const py = commandExists("py", ["-3", "--version"]);
     if (py.ok) {
-      return "py -3";
+      return { command: "py", args: ["-3"] };
     }
   }
   if (commandExists("python3").ok) {
-    return "python3";
+    return { command: "python3", args: [] };
   }
   if (commandExists("python").ok) {
-    return "python";
+    return { command: "python", args: [] };
   }
-  return "";
+  return null;
 }
 
 function runPythonSnippet(pythonCommand, code) {
   if (!pythonCommand) {
     return { ok: false, detail: "Python is missing." };
   }
-  const parts = pythonCommand.split(" ");
-  const command = parts.shift();
-  const result = spawnSync(command, [...parts, "-c", code], {
+  const result = spawnSync(pythonCommand.command, [...pythonCommand.args, "-c", code], {
     cwd: ROOT,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
     timeout: 12000,
   });
   return {
@@ -90,9 +94,9 @@ function checkPlatformStt() {
     return status(swift.ok, swift.ok ? "Apple Speech helper can be built with Swift." : "Swift was not found for Apple Speech.", "Install Xcode Command Line Tools, or use Whisper only.");
   }
   if (process.platform === "win32") {
-    return status(false, "Windows Speech is not used by this release. Whisper remains the recommended provider.", "Use Whisper only on Windows.");
+    return status(true, "Windows Speech is not used by this release. Whisper remains the recommended provider.");
   }
-  return status(false, "No native STT provider is configured for this platform.", "Use Whisper only.");
+  return status(true, "No native STT provider is configured for this platform. Use Whisper only.");
 }
 
 function runDoctor() {

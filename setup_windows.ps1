@@ -23,10 +23,31 @@ if ((Get-ExecutionPolicy -Scope CurrentUser) -eq "Restricted") {
   Write-Host ""
 }
 
+function Update-CurrentPath {
+  $MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $env:Path = "$MachinePath;$UserPath"
+}
+
+$WingetCommand = Get-Command winget -ErrorAction SilentlyContinue
+
 $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if (-not $PythonCommand) { $PythonCommand = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $PythonCommand) {
-  Stop-WithHelp "Python is missing." "Please install Python 3.10 or newer from https://www.python.org/downloads/ and check 'Add Python to PATH'."
+  Write-Host "Installing Python..."
+  if (-not $WingetCommand) {
+    Stop-WithHelp "Python is missing." "Please install Python 3.10 or newer from https://www.python.org/downloads/ and check 'Add Python to PATH'."
+  }
+  & $WingetCommand.Source install --id Python.Python.3.11 -e --accept-package-agreements --accept-source-agreements
+  if ($LASTEXITCODE -ne 0) {
+    Stop-WithHelp "Python could not be installed." "winget failed while installing Python. Install Python 3.10 or newer from https://www.python.org/downloads/ and check 'Add Python to PATH'."
+  }
+  Update-CurrentPath
+  $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $PythonCommand) { $PythonCommand = Get-Command py -ErrorAction SilentlyContinue }
+  if (-not $PythonCommand) {
+    Stop-WithHelp "Python was installed but is not available." "Restart PowerShell or your computer, then run setup_windows.ps1 again."
+  }
 }
 
 $NodeCommand = Get-Command node -ErrorAction SilentlyContinue
@@ -38,7 +59,6 @@ if (-not $NodeCommand -or -not $NpmCommand) {
 
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
   Write-Host "Installing FFmpeg..."
-  $WingetCommand = Get-Command winget -ErrorAction SilentlyContinue
   if (-not $WingetCommand) {
     Stop-WithHelp "FFmpeg is missing." "Install FFmpeg with: winget install Gyan.FFmpeg"
   }
@@ -46,9 +66,7 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     Stop-WithHelp "FFmpeg could not be installed." "winget failed while installing FFmpeg. Try running: winget install Gyan.FFmpeg"
   }
-  $MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-  $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  $env:Path = "$MachinePath;$UserPath"
+  Update-CurrentPath
   if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Stop-WithHelp "FFmpeg was installed but is not available." "Restart PowerShell or your computer, then run setup_windows.ps1 again."
   }
@@ -76,6 +94,7 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
   Stop-WithHelp "Python packages could not be installed." "Try running: .venv\Scripts\python.exe -m pip install -r requirements.txt"
 }
+$env:PYTHON = $VenvPython
 
 if (-not (Test-Path (Join-Path $Root "backend\package.json"))) {
   Stop-WithHelp "Backend package.json is missing." "Expected to find backend\package.json in this app folder."
