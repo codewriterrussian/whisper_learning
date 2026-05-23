@@ -15,8 +15,18 @@ Whisper is the recommended STT provider on every platform. Platform defaults are
 
 Beginner launchers are available at the repo root:
 
-- macOS: double-click `setup_mac.command`, then `run_mac.command`
-- Windows: run `setup_windows.ps1`, then double-click `run_windows.bat`
+- macOS: double-click `setup_mac.command`. After setup finishes, double-click `run_mac.command`.
+- Windows: right-click `setup_windows.ps1` and choose **Run with PowerShell**. After setup finishes, double-click `run_windows.bat`.
+
+The setup launcher creates `.venv`, upgrades pip, installs Python packages, installs backend/frontend npm packages, and tries to install FFmpeg if it is missing. On macOS, automatic FFmpeg install requires Homebrew. On Windows, automatic FFmpeg install requires `winget`.
+
+If Windows blocks the setup script, open PowerShell and run:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Then right-click `setup_windows.ps1` and choose **Run with PowerShell** again.
 
 The rest of this section is for developer/manual setup.
 
@@ -39,8 +49,8 @@ python -m pip install -r requirements.txt
 Install JavaScript dependencies:
 
 ```bash
-npm --prefix backend install
-npm --prefix frontend install
+(cd backend && npm install)
+(cd frontend && npm install)
 ```
 
 Install `ffmpeg`:

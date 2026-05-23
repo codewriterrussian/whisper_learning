@@ -10,6 +10,7 @@ if "%WHISPER_MODEL%"=="" set WHISPER_MODEL=large-v3-turbo
 if "%WHISPER_DEVICE%"=="" set WHISPER_DEVICE=auto
 if "%WHISPER_WARMUP%"=="" set WHISPER_WARMUP=0
 if "%STT_LANGUAGE_AUTO_OVERRIDE%"=="" set STT_LANGUAGE_AUTO_OVERRIDE=0
+if "%PYTHON%"=="" if exist "%~dp0.venv\Scripts\python.exe" set PYTHON=%~dp0.venv\Scripts\python.exe
 
 echo App is starting...
 echo You can close the backend and frontend windows to stop the app.

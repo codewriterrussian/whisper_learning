@@ -32,15 +32,25 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 fi
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
-  stop_with_help "FFmpeg is missing." "Install Homebrew from https://brew.sh/ and then run: brew install ffmpeg"
+  say_step "Installing FFmpeg"
+  if ! command -v brew >/dev/null 2>&1; then
+    stop_with_help "FFmpeg is missing." "Install Homebrew from https://brew.sh/ and then double-click setup_mac.command again."
+  fi
+  brew install ffmpeg || stop_with_help "FFmpeg could not be installed." "Homebrew failed while installing ffmpeg. Try opening Terminal here and running: brew install ffmpeg"
+  command -v ffmpeg >/dev/null 2>&1 || stop_with_help "FFmpeg was installed but is not available." "Close this window, open a new Terminal, and run: brew install ffmpeg"
 fi
 
 say_step "Creating app folders"
 mkdir -p recordings/uploads recordings/processed_audio targets transcripts results model_audio runs generated_reports
 
+say_step "Creating Python environment"
+"$PYTHON_BIN" -m venv "$ROOT/.venv" || stop_with_help "Python environment could not be created." "Try opening Terminal here and running: python3 -m venv .venv"
+VENV_PYTHON="$ROOT/.venv/bin/python"
+
 say_step "Installing Python packages"
 echo "This may take a while. Whisper may download a model the first time you check a recording."
-"$PYTHON_BIN" -m pip install -r requirements.txt || stop_with_help "Python packages could not be installed." "Try opening Terminal here and running: python3 -m pip install -r requirements.txt"
+"$VENV_PYTHON" -m pip install -U pip || stop_with_help "pip could not be upgraded." "Try opening Terminal here and running: .venv/bin/python -m pip install -U pip"
+"$VENV_PYTHON" -m pip install -r requirements.txt || stop_with_help "Python packages could not be installed." "Try opening Terminal here and running: .venv/bin/python -m pip install -r requirements.txt"
 
 if [ ! -f "$ROOT/backend/package.json" ]; then
   stop_with_help "Backend package.json is missing." "Expected to find $ROOT/backend/package.json"

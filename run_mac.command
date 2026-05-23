@@ -13,7 +13,9 @@ export WHISPER_DEVICE="${WHISPER_DEVICE:-auto}"
 export WHISPER_WARMUP="${WHISPER_WARMUP:-0}"
 export STT_LANGUAGE_AUTO_OVERRIDE="${STT_LANGUAGE_AUTO_OVERRIDE:-0}"
 
-if command -v python3 >/dev/null 2>&1; then
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  export PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
+elif command -v python3 >/dev/null 2>&1; then
   export PYTHON="${PYTHON:-$(command -v python3)}"
 elif command -v python >/dev/null 2>&1; then
   export PYTHON="${PYTHON:-$(command -v python)}"
