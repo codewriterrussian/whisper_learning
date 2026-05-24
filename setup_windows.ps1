@@ -30,7 +30,7 @@ function Update-CurrentPath {
 }
 
 function Add-FfmpegToPath {
-  if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+  if (Test-Ffmpeg) {
     return $true
   }
 
@@ -45,7 +45,7 @@ function Add-FfmpegToPath {
   foreach ($CandidatePath in $CandidatePaths) {
     if ($CandidatePath -and (Test-Path $CandidatePath)) {
       $env:Path = "$((Get-Item $CandidatePath).DirectoryName);$env:Path"
-      return $true
+      if (Test-Ffmpeg) { return $true }
     }
   }
 
@@ -62,11 +62,20 @@ function Add-FfmpegToPath {
     $FfmpegExe = Get-ChildItem -Path $SearchRoot -Filter ffmpeg.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($FfmpegExe) {
       $env:Path = "$($FfmpegExe.DirectoryName);$env:Path"
-      return $true
+      if (Test-Ffmpeg) { return $true }
     }
   }
 
   return $false
+}
+
+function Test-Ffmpeg {
+  $Command = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if (-not $Command) {
+    return $false
+  }
+  & $Command.Source -version *> $null
+  return $LASTEXITCODE -eq 0
 }
 
 $WingetCommand = Get-Command winget -ErrorAction SilentlyContinue
@@ -98,19 +107,22 @@ if (-not $NodeCommand -or -not $NpmCommand) {
 }
 
 Add-FfmpegToPath | Out-Null
-if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+if (-not (Test-Ffmpeg)) {
   Write-Host "Installing FFmpeg..."
   if (-not $WingetCommand) {
-    Stop-WithHelp "FFmpeg is missing." "Install FFmpeg with: winget install Gyan.FFmpeg"
+    Stop-WithHelp "FFmpeg is required but was not found." "Install FFmpeg with one of these methods:
+1. winget install --id Gyan.FFmpeg -e --source winget
+2. Download FFmpeg from https://www.gyan.dev/ffmpeg/builds/
+Then restart PowerShell and run setup_windows.ps1 again."
   }
-  & $WingetCommand.Source install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
+  & $WingetCommand.Source install --id Gyan.FFmpeg -e --source winget --accept-package-agreements --accept-source-agreements
   if ($LASTEXITCODE -ne 0) {
-    Stop-WithHelp "FFmpeg could not be installed." "winget failed while installing FFmpeg. Try running: winget install Gyan.FFmpeg"
+    Stop-WithHelp "FFmpeg could not be installed." "winget failed while installing FFmpeg. Try running: winget install --id Gyan.FFmpeg -e --source winget"
   }
   Update-CurrentPath
   Add-FfmpegToPath | Out-Null
-  if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    Stop-WithHelp "FFmpeg was installed but is not available." "Restart PowerShell or your computer, then run setup_windows.ps1 again."
+  if (-not (Test-Ffmpeg)) {
+    Stop-WithHelp "FFmpeg was installed but is not available." "Close and reopen PowerShell, re-run setup_windows.ps1, or restart the computer if PATH is not refreshed."
   }
 }
 

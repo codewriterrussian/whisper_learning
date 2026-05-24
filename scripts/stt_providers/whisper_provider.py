@@ -14,6 +14,20 @@ from scripts.compare import get_transcript_validation_debug, validate_transcript
 from .base import STTProvider
 
 _MODEL_CACHE = {}
+MPS_BACKEND_ERROR_PATTERNS = (
+    "sparsemps",
+    "aten::empty.memory_format",
+    "aten::_sparse_coo_tensor_with_dims_and_tensors",
+    "sparse_coo_tensor",
+    "mps backend",
+    "not currently supported on the mps backend",
+    "could not run",
+)
+
+
+def is_mps_backend_error(error: BaseException | str) -> bool:
+    text = str(error).lower()
+    return any(pattern in text for pattern in MPS_BACKEND_ERROR_PATTERNS)
 
 
 class WhisperProvider(STTProvider):
@@ -57,8 +71,8 @@ class WhisperProvider(STTProvider):
             return "cpu"
 
         if requested_device == "auto":
-            if platform.system() == "Darwin" and torch.backends.mps.is_available():
-                return "mps"
+            if platform.system() == "Darwin":
+                return "cpu"
             if torch.cuda.is_available():
                 return "cuda"
             return "cpu"
@@ -129,13 +143,36 @@ class WhisperProvider(STTProvider):
             file=sys.stderr,
         )
         started = time.perf_counter()
-        transcript = self.transcribe_once(audio_path)
+        fallback_used = False
+        fallback_reason = ""
+        actual_device = initial_device
+        try:
+            transcript = self.transcribe_once(audio_path)
+        except Exception as error:
+            if initial_device != "mps" or not is_mps_backend_error(error):
+                raise
+            fallback_used = True
+            fallback_reason = "mps_sparse_backend_error"
+            actual_device = "cpu"
+            print("[STT] MPS failed with a PyTorch backend error; retrying Whisper on CPU.", file=sys.stderr)
+            transcript = self.transcribe_once(audio_path, force_device="cpu")
         first_ms = round((time.perf_counter() - started) * 1000)
         print(f"[timing] Whisper first pass: {first_ms}ms", file=sys.stderr)
         validation = validate_transcript(transcript)
         print(get_transcript_validation_debug("Whisper", transcript, validation.reason), file=sys.stderr)
         if validation.status == "ok":
-            return {"status": "ok", "transcript": transcript, "error": "", "recovered": False, "firstPassMs": first_ms, "retryMs": 0}
+            return {
+                "status": "ok",
+                "transcript": transcript,
+                "error": "",
+                "recovered": False,
+                "firstPassMs": first_ms,
+                "retryMs": 0,
+                "requestedDevice": self.requested_device,
+                "actualDevice": actual_device,
+                "fallbackUsed": fallback_used,
+                "fallbackReason": fallback_reason,
+            }
 
         print("[STT] Whisper first attempt was invalid, retrying with safer decoding settings.", file=sys.stderr)
         retry_device = "cpu" if self.retry_device_policy == "cpu" and initial_device == "mps" else initial_device
@@ -158,6 +195,10 @@ class WhisperProvider(STTProvider):
                 "firstPassMs": first_ms,
                 "retryMs": retry_ms,
                 "retryDevice": retry_device,
+                "requestedDevice": self.requested_device,
+                "actualDevice": retry_device,
+                "fallbackUsed": fallback_used,
+                "fallbackReason": fallback_reason,
             }
 
         return {
@@ -168,4 +209,8 @@ class WhisperProvider(STTProvider):
             "firstPassMs": first_ms,
             "retryMs": retry_ms,
             "retryDevice": retry_device,
+            "requestedDevice": self.requested_device,
+            "actualDevice": retry_device,
+            "fallbackUsed": fallback_used,
+            "fallbackReason": fallback_reason,
         }

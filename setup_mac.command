@@ -3,6 +3,8 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT" || exit 1
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
 
 say_step() {
   printf "\n== %s ==\n" "$1"
@@ -42,13 +44,18 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   stop_with_help "Node.js/npm is missing." "Please install Node.js LTS from https://nodejs.org/"
 fi
 
-if ! command -v ffmpeg >/dev/null 2>&1; then
+check_ffmpeg() {
+  command -v ffmpeg >/dev/null 2>&1 && ffmpeg -version >/dev/null 2>&1
+}
+
+if ! check_ffmpeg; then
   say_step "Installing FFmpeg"
   if ! command -v brew >/dev/null 2>&1; then
-    stop_with_help "FFmpeg is missing." "Install Homebrew from https://brew.sh/ and then double-click setup_mac.command again."
+    stop_with_help "FFmpeg is required but was not found." "Please install Homebrew from https://brew.sh, then run: brew install ffmpeg
+After that, re-run setup_mac.command."
   fi
-  brew install ffmpeg || stop_with_help "FFmpeg could not be installed." "Homebrew failed while installing ffmpeg. Try opening Terminal here and running: brew install ffmpeg"
-  command -v ffmpeg >/dev/null 2>&1 || stop_with_help "FFmpeg was installed but is not available." "Close this window, open a new Terminal, and run: brew install ffmpeg"
+  brew install ffmpeg || stop_with_help "FFmpeg could not be installed." "Homebrew failed while installing FFmpeg. Try opening Terminal here and running: brew install ffmpeg"
+  check_ffmpeg || stop_with_help "FFmpeg was installed but is not available." "Close this window, open a new Terminal, run: brew install ffmpeg, then re-run setup_mac.command."
 fi
 
 say_step "Creating app folders"

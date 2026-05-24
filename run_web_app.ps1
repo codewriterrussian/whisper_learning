@@ -14,7 +14,16 @@ if (-not $env:PYTHON) {
   $env:PYTHON = $pythonCommand.Source
 }
 
-if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+function Test-Ffmpeg {
+  $Command = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if (-not $Command) {
+    return $false
+  }
+  & $Command.Source -version *> $null
+  return $LASTEXITCODE -eq 0
+}
+
+if (-not (Test-Ffmpeg)) {
   throw "ffmpeg is required. Install it with: winget install Gyan.FFmpeg"
 }
 

@@ -3,13 +3,14 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT" || exit 1
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 export BACKEND_PORT="${BACKEND_PORT:-6174}"
 export FRONTEND_PORT="${FRONTEND_PORT:-6173}"
 export FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 export VITE_API_BASE="${VITE_API_BASE:-http://localhost:${BACKEND_PORT}}"
 export WHISPER_MODEL="${WHISPER_MODEL:-large-v3-turbo}"
-export WHISPER_DEVICE="${WHISPER_DEVICE:-auto}"
+export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
 export WHISPER_WARMUP="${WHISPER_WARMUP:-0}"
 export STT_LANGUAGE_AUTO_OVERRIDE="${STT_LANGUAGE_AUTO_OVERRIDE:-0}"
 
@@ -31,7 +32,7 @@ if [[ ! -d backend/node_modules || ! -d frontend/node_modules ]]; then
   exit 1
 fi
 
-if ! command -v ffmpeg >/dev/null 2>&1; then
+if ! command -v ffmpeg >/dev/null 2>&1 || ! ffmpeg -version >/dev/null 2>&1; then
   echo "FFmpeg is missing. This app needs FFmpeg to process your audio."
   echo "Run setup_mac.command for help."
   read -r -p "Press Return to close this window..."

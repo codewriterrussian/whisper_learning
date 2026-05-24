@@ -48,6 +48,12 @@ Whisper Speaking Practice 可以幫助使用者練習外語發音，主要流程
 
 macOS 的 Apple STT 是選用與實驗性功能；如果失敗或被跳過，仍然可以正常使用 Whisper。
 
+### macOS Whisper 裝置設定
+
+在 macOS Apple Silicon 上，本工具預設使用 CPU 執行 Whisper。CPU 速度可能比 MPS 慢，但對初學者與第一次安裝測試更穩定。
+
+MPS 仍可在 Advanced Mode 中手動選擇。不過部分 PyTorch / Whisper 組合可能遇到 SparseMPS 錯誤。如果 MPS 失敗，App 會自動改用 CPU 重試一次，避免整個檢查流程中斷。
+
 ---
 
 ## 3. 快速安裝方式

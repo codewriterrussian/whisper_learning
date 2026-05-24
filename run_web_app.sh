@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 if [[ -n "${PYTHON:-}" ]]; then
   PYTHON_BIN="$PYTHON"
@@ -29,7 +30,11 @@ fi
 
 export PYTHON="$PYTHON_BIN"
 export WHISPER_MODEL="${WHISPER_MODEL:-large}"
-export WHISPER_DEVICE="${WHISPER_DEVICE:-auto}"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
+else
+  export WHISPER_DEVICE="${WHISPER_DEVICE:-auto}"
+fi
 export WHISPER_WARMUP="${WHISPER_WARMUP:-1}"
 export WHISPER_RETRY_DEVICE="${WHISPER_RETRY_DEVICE:-same}"
 export STT_LANGUAGE_AUTO_OVERRIDE="${STT_LANGUAGE_AUTO_OVERRIDE:-0}"
@@ -107,7 +112,7 @@ require_free_port() {
   fi
 }
 
-if ! command -v ffmpeg >/dev/null 2>&1; then
+if ! command -v ffmpeg >/dev/null 2>&1 || ! ffmpeg -version >/dev/null 2>&1; then
   echo "[ERROR] ffmpeg is required but not found."
   echo "Install it with: brew install ffmpeg, sudo apt install ffmpeg, or your distro package manager."
   exit 1

@@ -28,6 +28,12 @@ The setup launcher tries to install Python and FFmpeg if they are missing, creat
 
 Whisper model files are downloaded automatically the first time the app needs them. This can take a while and needs enough disk space for the selected model.
 
+### macOS Whisper device
+
+On Apple Silicon macOS, this app defaults Whisper to CPU for stable beginner use. CPU can be slower than MPS, but it avoids known PyTorch SparseMPS failures during Whisper transcription.
+
+MPS remains available in Advanced Mode. If MPS fails, the app retries once on CPU and reports a non-fatal fallback warning.
+
 If Windows blocks the setup script, open PowerShell and run:
 
 ```powershell

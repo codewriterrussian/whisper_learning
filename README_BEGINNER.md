@@ -72,6 +72,12 @@ The setup script checks these for you:
 
 If one is missing, the setup script or System Check will tell you what to install.
 
+## macOS Whisper Device
+
+On Apple Silicon macOS, this app defaults Whisper to CPU for stable beginner use. CPU can be slower than MPS, but it avoids known PyTorch SparseMPS failures during Whisper transcription.
+
+MPS remains available in Advanced Mode. If MPS fails, the app retries once on CPU and reports a non-fatal fallback warning.
+
 ## macOS Step By Step
 
 1. Put the app folder somewhere simple, such as **Documents**.

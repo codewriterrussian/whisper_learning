@@ -70,4 +70,6 @@ test("beginner system check and simple mode UI are wired", () => {
   assert.match(mainJs, /api\/system-check/);
   assert.match(mainJs, /function applySimpleSettings/);
   assert.match(mainJs, /function initializeBeginnerUi/);
+  assert.match(mainJs, /CPU is the stable macOS default/);
+  assert.match(mainJs, /Whisper retried on CPU because Apple Silicon MPS failed for this model/);
 });

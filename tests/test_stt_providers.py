@@ -112,6 +112,11 @@ class STTProviderTests(unittest.TestCase):
         ):
             self.assertEqual(provider.resolve_device(), "cuda")
 
+    def test_auto_uses_cpu_on_macos_for_release_stability(self) -> None:
+        provider = WhisperProvider(model_name="large", device="auto")
+        with patch("scripts.stt_providers.whisper_provider.platform.system", return_value="Darwin"):
+            self.assertEqual(provider.resolve_device(), "cpu")
+
     def test_auto_falls_back_to_cpu_without_accelerator(self) -> None:
         provider = WhisperProvider(model_name="large", device="auto")
         with (
@@ -158,7 +163,7 @@ class STTProviderTests(unittest.TestCase):
             patch("scripts.stt_model.get_provider", side_effect=fake_get_provider),
             patch("scripts.stt_model.get_native_provider_name", return_value="apple"),
         ):
-            result = transcribe_both("recordings/my_recording.wav")
+            result = transcribe_both("recordings/my_recording.wav", preprocess=False)
 
         self.assertEqual(result["whisper"]["status"], "ok")
         self.assertEqual(result["whisper"]["transcript"], "whisper transcript")
@@ -220,6 +225,35 @@ class STTProviderTests(unittest.TestCase):
         self.assertEqual(model.calls[1]["beam_size"], 5)
         self.assertEqual(model.calls[1]["language"], "pl")
         self.assertEqual(model.calls[1]["fp16"], False)
+
+    def test_mps_sparse_error_retries_once_on_cpu(self) -> None:
+        class FakeWhisperModel:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def transcribe(self, _path: str, **options):
+                self.calls.append(options)
+                if len(self.calls) == 1:
+                    raise RuntimeError("Could not run 'aten::empty.memory_format' with arguments from the 'SparseMPS' backend")
+                return {"text": "hello world"}
+
+        model = FakeWhisperModel()
+        provider = WhisperProvider(language="en", model_name="large", device="mps", fast_mode=True)
+
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(provider, "get_model", return_value=model),
+            patch("scripts.stt_providers.whisper_provider.platform.system", return_value="Darwin"),
+            patch.object(whisper_provider_module.torch.backends.mps, "is_available", return_value=True),
+        ):
+            result = provider.transcribe_with_retry("recordings/my_recording.wav")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["transcript"], "hello world")
+        self.assertTrue(result["fallbackUsed"])
+        self.assertEqual(result["fallbackReason"], "mps_sparse_backend_error")
+        self.assertEqual(result["requestedDevice"], "mps")
+        self.assertEqual(result["actualDevice"], "cpu")
 
     def test_retry_stays_on_mps_by_default_for_speed(self) -> None:
         class FakeWhisperModel:
@@ -305,7 +339,7 @@ class STTProviderTests(unittest.TestCase):
             patch("scripts.stt_model.get_provider", side_effect=fake_get_provider),
             patch("scripts.stt_model.get_native_provider_name", return_value="apple"),
         ):
-            result = transcribe_both("recordings/my_recording.wav")
+            result = transcribe_both("recordings/my_recording.wav", preprocess=False)
 
         self.assertEqual(result["whisper"]["status"], "invalid")
         self.assertEqual(result["apple"]["status"], "ok")

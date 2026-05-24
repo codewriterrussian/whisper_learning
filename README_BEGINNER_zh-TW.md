@@ -79,6 +79,14 @@ App 也可能會打開一個或兩個 command windows。這是正常的。
 
 ---
 
+## macOS Whisper 裝置設定
+
+在 macOS Apple Silicon 上，本工具預設使用 CPU 執行 Whisper。CPU 速度可能比 MPS 慢，但對初學者與第一次安裝測試更穩定。
+
+MPS 仍可在 Advanced Mode 中手動選擇。不過部分 PyTorch / Whisper 組合可能遇到 SparseMPS 錯誤。如果 MPS 失敗，App 會自動改用 CPU 重試一次，避免整個檢查流程中斷。
+
+---
+
 ## 開始之前
 
 這個 App 需要電腦上有幾個輔助工具。

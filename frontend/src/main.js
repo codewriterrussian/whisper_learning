@@ -133,6 +133,7 @@ const COMPARISON_MODE_TO_BACKEND_PROVIDER = {
   apple: "apple",
   colab_whisper: "colab_whisper",
 };
+const MPS_FALLBACK_WARNING = "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
 const BACKEND_PROVIDER_TO_COMPARISON_MODE = {
   whisper: "whisper",
   both: "whisper_apple",
@@ -502,7 +503,7 @@ async function loadPlatformSettings() {
     updateRemoteSttWarning();
     syncSimpleControlsFromAdvanced();
     whisperDeviceHelpEl.textContent = platformConfig.platform === "darwin"
-      ? "Auto uses MPS on Apple Silicon when available, otherwise CPU."
+      ? "CPU is the stable macOS default. MPS can be faster on Apple Silicon, but Whisper may fail with PyTorch SparseMPS errors and retry on CPU."
       : "Auto uses CUDA when available, otherwise CPU. MPS is never selected outside macOS.";
   } catch (_error) {
     const savedComparisonMode = localStorage.getItem(COMPARISON_MODE_STORAGE_KEY) || "";
@@ -2395,6 +2396,7 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
     providerResults,
     fallbackUsed: Boolean(data.fallbackUsed || data.resultJson?.fallbackUsed),
     fallbackReason: data.fallbackReason || data.resultJson?.fallbackReason || "",
+    whisperFallbackWarning: data.whisperFallbackWarning || (data.fallbackReason === "mps_sparse_backend_error" ? MPS_FALLBACK_WARNING : ""),
     nativeProvider,
     nativeProviderLabel: getNativeProviderLabel(nativeProvider),
     languageTip,
@@ -2462,8 +2464,9 @@ function renderResults(result) {
   providerModeResultEl.textContent = `Mode: ${getProviderModeLabel(result)}\n${getNativeComparisonLine(result)}\n${scoringProviderText}`;
 
   if (isProviderUsable(result.whisperStatus)) {
+    const fallbackNote = result.whisperFallbackWarning ? `${result.whisperFallbackWarning}\n\n` : "";
     const recoveredNote = result.whisperStatus === "ok_retry" ? "Whisper recovered after retry.\n\n" : "";
-    transcriptResultEl.textContent = `${recoveredNote}${result.bothTranscripts?.whisper || result.transcript}`;
+    transcriptResultEl.textContent = `${fallbackNote}${recoveredNote}${result.bothTranscripts?.whisper || result.transcript}`;
   } else if (result.whisperStatus === "low_confidence") {
     transcriptResultEl.textContent = `Whisper transcript was low confidence and was not scored${result.whisperNote ? `: ${result.whisperNote}` : "."}`;
   } else if (result.whisperStatus === "invalid") {

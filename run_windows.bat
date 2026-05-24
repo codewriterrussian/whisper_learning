@@ -39,6 +39,13 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+ffmpeg -version >nul 2>nul
+if errorlevel 1 (
+  echo FFmpeg was found, but ffmpeg -version failed.
+  echo Run setup_windows.ps1 for help.
+  pause
+  exit /b 1
+)
 
 start "Whisper Practice Backend" /D "%~dp0backend" cmd /k "set PORT=%BACKEND_PORT%&& npm run dev"
 start "Whisper Practice Frontend" /D "%~dp0frontend" cmd /k "set FRONTEND_HOST=%FRONTEND_HOST%&& set FRONTEND_PORT=%FRONTEND_PORT%&& set VITE_API_BASE=%VITE_API_BASE%&& npm run dev"

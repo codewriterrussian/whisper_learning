@@ -6,6 +6,10 @@ const { spawnSync } = require("child_process");
 
 const ROOT = path.resolve(path.dirname(__filename), "..");
 
+if (process.platform === "darwin") {
+  process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`;
+}
+
 function commandExists(command, args = ["--version"]) {
   try {
     const result = spawnSync(command, args, {
@@ -52,10 +56,50 @@ function findFileRecursive(root, filename, maxDepth = 6) {
   return "";
 }
 
+function runFfmpegVersion(command) {
+  try {
+    const result = spawnSync(command, ["-version"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      shell: process.platform === "win32" && !/[\\/]/.test(command),
+      timeout: 8000,
+    });
+    if (result.status !== 0) {
+      return null;
+    }
+    return (result.stdout || result.stderr || "").split(/\r?\n/)[0].trim();
+  } catch (_error) {
+    return null;
+  }
+}
+
 function findFfmpegCommand() {
+  const ffmpegVersion = runFfmpegVersion("ffmpeg");
+  if (ffmpegVersion) {
+    return { command: "ffmpeg", path: "ffmpeg", detail: ffmpegVersion, version: ffmpegVersion };
+  }
+
+  const macCandidates = [
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+  ];
+
+  if (process.platform === "darwin") {
+    for (const ffmpegPath of macCandidates) {
+      if (!fs.existsSync(ffmpegPath)) {
+        continue;
+      }
+      const detail = runFfmpegVersion(ffmpegPath);
+      if (detail) {
+        process.env.PATH = `${path.dirname(ffmpegPath)}:${process.env.PATH || ""}`;
+        return { command: ffmpegPath, path: ffmpegPath, detail, version: detail };
+      }
+    }
+  }
+
   const ffmpeg = commandExists("ffmpeg");
   if (ffmpeg.ok) {
-    return { command: "ffmpeg", detail: ffmpeg.detail };
+    return { command: "ffmpeg", path: "ffmpeg", detail: ffmpeg.detail, version: ffmpeg.detail };
   }
 
   if (process.platform !== "win32") {
@@ -78,17 +122,11 @@ function findFfmpegCommand() {
     if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
       continue;
     }
-    const result = spawnSync(ffmpegPath, ["--version"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      shell: false,
-      timeout: 8000,
-    });
-    if (result.status === 0) {
-      const detail = (result.stdout || result.stderr || "").split(/\r?\n/)[0].trim();
+    const detail = runFfmpegVersion(ffmpegPath);
+    if (detail) {
       process.env.Path = `${path.dirname(ffmpegPath)};${process.env.Path || ""}`;
       process.env.PATH = `${path.dirname(ffmpegPath)};${process.env.PATH || ""}`;
-      return { command: ffmpegPath, detail: detail || ffmpegPath };
+      return { command: ffmpegPath, path: ffmpegPath, detail, version: detail };
     }
   }
 
@@ -97,17 +135,11 @@ function findFfmpegCommand() {
     if (!ffmpegPath) {
       continue;
     }
-    const result = spawnSync(ffmpegPath, ["--version"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      shell: false,
-      timeout: 8000,
-    });
-    if (result.status === 0) {
-      const detail = (result.stdout || result.stderr || "").split(/\r?\n/)[0].trim();
+    const detail = runFfmpegVersion(ffmpegPath);
+    if (detail) {
       process.env.Path = `${path.dirname(ffmpegPath)};${process.env.Path || ""}`;
       process.env.PATH = `${path.dirname(ffmpegPath)};${process.env.PATH || ""}`;
-      return { command: ffmpegPath, detail: detail || ffmpegPath };
+      return { command: ffmpegPath, path: ffmpegPath, detail, version: detail };
     }
   }
 
@@ -164,6 +196,27 @@ function status(ok, detail = "", fix = "") {
   };
 }
 
+function getFfmpegInstallFix() {
+  if (process.platform === "darwin") {
+    return "Install command: macOS: brew install ffmpeg";
+  }
+  if (process.platform === "win32") {
+    return "Install command: Windows: winget install --id Gyan.FFmpeg -e --source winget";
+  }
+  return "Install command: Ubuntu/Debian Linux: sudo apt update && sudo apt install ffmpeg";
+}
+
+function checkWhisperDevice() {
+  const effectiveDevice = process.env.WHISPER_DEVICE || (process.platform === "darwin" ? "cpu" : "auto");
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    const detail = effectiveDevice === "cpu"
+      ? "Whisper CPU mode: recommended for stable beginner use. MPS mode is experimental and may fail with PyTorch SparseMPS errors."
+      : `Whisper device is ${effectiveDevice}. MPS mode is experimental and may fail with PyTorch SparseMPS errors; CPU is recommended for beginner use.`;
+    return status(true, detail);
+  }
+  return status(true, `Whisper device: ${effectiveDevice}`);
+}
+
 function checkWritableDirs() {
   const dirs = ["recordings", "recordings/uploads", "recordings/processed_audio", "targets", "transcripts", "results", "model_audio", "runs", "generated_reports"];
   const failed = [];
@@ -199,7 +252,7 @@ function runDoctor() {
   const npm = commandExists(process.platform === "win32" ? "npm.cmd" : "npm");
   const ffmpegCommand = findFfmpegCommand();
   const ffmpeg = ffmpegCommand
-    ? { ok: true, detail: ffmpegCommand.detail }
+    ? { ok: true, detail: ffmpegCommand.detail, path: ffmpegCommand.path, version: ffmpegCommand.version }
     : { ok: false, detail: "" };
   const whisper = runPythonSnippet(pythonCommand, "import whisper; print('openai-whisper available')");
   const backendDeps = status(fs.existsSync(path.join(ROOT, "backend", "node_modules")), "backend/node_modules", "Run the setup script first.");
@@ -214,8 +267,14 @@ function runDoctor() {
       python: status(python.ok, python.ok ? `Python ${python.detail}` : "Python 3.10 or newer was not found.", "Install Python 3.10 or newer, then run setup again."),
       node: status(node.ok, node.ok ? node.detail : "Node.js was not found.", "Install Node.js LTS, then run setup again."),
       npm: status(npm.ok, npm.ok ? npm.detail : "npm was not found.", "Install Node.js LTS, then run setup again."),
-      ffmpeg: status(ffmpeg.ok, ffmpeg.ok ? ffmpeg.detail : "FFmpeg is missing. This app needs FFmpeg to process your audio.", "Install FFmpeg, then run setup again."),
+      ffmpeg: {
+        ...status(ffmpeg.ok, ffmpeg.ok ? ffmpeg.detail : "FFmpeg is missing. This app needs FFmpeg to process your audio.", getFfmpegInstallFix()),
+        path: ffmpeg.ok ? ffmpeg.path : null,
+        version: ffmpeg.ok ? ffmpeg.version : "",
+        message: ffmpeg.ok ? "FFmpeg is available for audio conversion." : "FFmpeg is required for audio conversion.",
+      },
       whisper: status(whisper.ok, whisper.ok ? whisper.detail : "Whisper Python package is missing.", "Run: python -m pip install -r requirements.txt"),
+      whisperDevice: checkWhisperDevice(),
       backendDependencies: backendDeps,
       frontendDependencies: frontendDeps,
       platformStt: checkPlatformStt(),

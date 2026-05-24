@@ -155,9 +155,9 @@ function getDeviceOptions() {
   const platformKey = getPlatformKey();
   if (platformKey === "darwin" && process.arch === "arm64") {
     return [
-      { value: "auto", label: "Auto - use MPS when available" },
-      { value: "mps", label: "MPS - Apple Silicon GPU" },
-      { value: "cpu", label: "CPU - compatibility mode" },
+      { value: "cpu", label: "CPU - stable beginner default" },
+      { value: "auto", label: "Auto - experimental; may use MPS" },
+      { value: "mps", label: "MPS - experimental Apple Silicon GPU" },
     ];
   }
 
@@ -208,11 +208,24 @@ function normalizeWhisperModel(model) {
 
 function normalizeWhisperDevice(device) {
   const requested = ALLOWED_WHISPER_DEVICES.has(device) ? device : process.env.WHISPER_DEVICE;
-  const normalized = ALLOWED_WHISPER_DEVICES.has(requested) ? requested : "auto";
+  const fallbackDevice = getPlatformKey() === "darwin" ? "cpu" : "auto";
+  const normalized = ALLOWED_WHISPER_DEVICES.has(requested) ? requested : fallbackDevice;
   if (normalized === "mps" && getPlatformKey() !== "darwin") {
     return "auto";
   }
   return normalized;
+}
+
+function isMpsSparseError(message) {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("sparsemps") ||
+    text.includes("aten::empty.memory_format") ||
+    text.includes("sparse_coo_tensor") ||
+    text.includes("mps backend") ||
+    text.includes("not currently supported on the mps backend") ||
+    text.includes("could not run")
+  );
 }
 
 function normalizeSttProvider(provider) {
@@ -440,7 +453,7 @@ function startSttWorker() {
     env: {
       ...process.env,
       WHISPER_MODEL: process.env.WHISPER_MODEL || DEFAULT_WHISPER_MODEL,
-      WHISPER_DEVICE: process.env.WHISPER_DEVICE || "auto",
+      WHISPER_DEVICE: process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto"),
       WHISPER_RETRY_DEVICE: process.env.WHISPER_RETRY_DEVICE || "same",
     },
   });
@@ -514,6 +527,34 @@ function runSttWorker(payload) {
       }
     });
   });
+}
+
+async function runSttWorkerWithMpsFallback(payload) {
+  try {
+    return await runSttWorker(payload);
+  } catch (error) {
+    if (payload.device === "cpu" || !isMpsSparseError(error.message)) {
+      throw error;
+    }
+    console.warn("[WARN] Whisper MPS failed; retrying STT worker request on CPU.");
+    const retryResult = await runSttWorker({ ...payload, device: "cpu" });
+    if (retryResult && typeof retryResult === "object") {
+      if (retryResult.whisper && typeof retryResult.whisper === "object") {
+        retryResult.whisper.fallbackUsed = true;
+        retryResult.whisper.fallbackReason = "mps_sparse_backend_error";
+        retryResult.whisper.requestedDevice = payload.device;
+        retryResult.whisper.actualDevice = "cpu";
+        retryResult.whisper.error = retryResult.whisper.error || "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
+      } else {
+        retryResult.fallbackUsed = true;
+        retryResult.fallbackReason = "mps_sparse_backend_error";
+        retryResult.requestedDevice = payload.device;
+        retryResult.actualDevice = "cpu";
+        retryResult.error = retryResult.error || "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
+      }
+    }
+    return retryResult;
+  }
 }
 
 function writeTranscriptOutputs(transcriptPath, sttProvider, transcriptResult) {
@@ -718,7 +759,7 @@ app.get("/api/bootstrap", (_req, res) => {
     defaultSttProvider: DEFAULT_STT_PROVIDER,
     sttProviders: getSttProviderOptions(),
     whisperDevices: getDeviceOptions(),
-    defaultWhisperDevice: normalizeWhisperDevice(process.env.WHISPER_DEVICE || "auto"),
+    defaultWhisperDevice: normalizeWhisperDevice(process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto")),
     defaultWhisperModel: normalizeWhisperModel("default"),
   });
 });
@@ -929,7 +970,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     }
 
     phaseStartedAt = nowMs();
-    const transcriptResult = await runSttWorker({
+    const transcriptResult = await runSttWorkerWithMpsFallback({
       audioPath: scoringAudioRelativePath,
       language,
       modelName: whisperModel,
@@ -1119,8 +1160,9 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     });
     const attemptedProviders = getAttemptedProviders(sttProvider, activeNativeProvider);
     const selectedScoringProvider = getSelectedScoringProvider(sttProvider, activeNativeProvider, providerStatuses);
-    const fallbackUsed = false;
-    const fallbackReason = "";
+    const whisperFallback = providerResults?.whisper || transcriptResult || {};
+    const fallbackUsed = Boolean(whisperFallback.fallbackUsed);
+    const fallbackReason = whisperFallback.fallbackReason || "";
     const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, colabWhisperStatus, colabWhisperTranscript }));
     const teacherFeedback = buildTeacherFeedbackSummary(comparison, focusWord, audioSimilarity);
     const resultJson = buildCanonicalResult({
@@ -1132,6 +1174,8 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       targetText,
       whisperModel,
       whisperDevice,
+      whisperActualDevice: whisperFallback.actualDevice || whisperDevice,
+      whisperRequestedDevice: whisperFallback.requestedDevice || whisperDevice,
       sttProvider,
       providerMode: sttProvider,
       requestedProvider,
@@ -1208,6 +1252,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       whisperStatus,
       whisperNote,
       whisperRecovered,
+      whisperFallbackWarning: fallbackUsed ? "Whisper retried on CPU because Apple Silicon MPS failed for this model." : "",
       appleStatus,
       appleNote,
       colabWhisperStatus,
@@ -1249,7 +1294,7 @@ const server = app.listen(PORT, "127.0.0.1", () => {
   console.log(`[INFO] Available STT providers: ${getSttProviderOptions().map((provider) => provider.value).join(", ")}`);
   console.log(`[INFO] Default STT provider: ${DEFAULT_STT_PROVIDER}`);
   console.log(`[INFO] Whisper model: ${process.env.WHISPER_MODEL || DEFAULT_WHISPER_MODEL}`);
-  console.log(`[INFO] Whisper device: ${normalizeWhisperDevice(process.env.WHISPER_DEVICE || "auto")}`);
+  console.log(`[INFO] Whisper device: ${normalizeWhisperDevice(process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto"))}`);
   console.log(`[INFO] Max upload size: ${Number(process.env.MAX_UPLOAD_MB || 25)} MB`);
   if (process.env.WHISPER_WARMUP === "1") {
     startSttWorker();
