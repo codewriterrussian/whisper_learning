@@ -21,14 +21,24 @@ Record your speech, check it with OpenAI Whisper, and review word accuracy, flue
 
 ## Start Here
 
+### English
+
 New users should start with the beginner guide:
 
 - [Beginner English guide](README_BEGINNER.md)
-- [初學者繁體中文指南](README_BEGINNER_zh-TW.md)
 
-Technical users can read the full manuals:
+Technical users can read the full manual:
 
 - [Full English technical manual](README_en.md)
+
+### 繁體中文
+
+新使用者建議先閱讀初學者指南：
+
+- [初學者繁體中文指南](README_BEGINNER_zh-TW.md)
+
+技術使用者可以閱讀完整技術文件：
+
 - [完整繁體中文技術文件](README_zh-TW.md)
 
 ---
@@ -37,30 +47,20 @@ Technical users can read the full manuals:
 
 ### macOS
 
-1. Double-click `setup_mac.command` once.
-2. Double-click `run_mac.command`.
+English:
+
+1. Double-click `setup_mac.command` once to install.
+2. Double-click `run_mac.command` to start the app.
 3. If the browser does not open, go to:
 
 ```text
 http://localhost:6173
 ```
 
-### Windows
+繁體中文：
 
-1. Right-click `setup_windows.ps1`.
-2. Choose **Run with PowerShell**.
-3. Double-click `run_windows.bat`.
-
-The first launch or first recording check may be slow because Whisper may need to download, load, or warm up the model.
-
----
-
-## 快速開始
-
-### macOS
-
-1. 雙擊 `setup_mac.command` 一次。
-2. 雙擊 `run_mac.command`。
+1. 雙擊 `setup_mac.command` 一次來安裝。
+2. 雙擊 `run_mac.command` 啟動 App。
 3. 如果瀏覽器沒有自動開啟，請前往：
 
 ```text
@@ -69,25 +69,51 @@ http://localhost:6173
 
 ### Windows
 
+English:
+
+1. Right-click `setup_windows.ps1`.
+2. Choose **Run with PowerShell**.
+3. Double-click `run_windows.bat`.
+
+繁體中文：
+
 1. 右鍵點擊 `setup_windows.ps1`。
 2. 選擇 **Run with PowerShell**。
 3. 雙擊 `run_windows.bat`。
+
+### First launch note / 第一次啟動提醒
+
+English:
+
+The first launch or first recording check may be slow because Whisper may need to download, load, or warm up the model.
+
+繁體中文：
 
 第一次啟動或第一次檢查錄音可能比較慢，因為 Whisper 可能需要下載、載入或 warm up 模型。
 
 ---
 
-## What It Does / 功能
+## What It Does
 
-- Listen to model audio / 聽範例語音
-- Record your voice / 錄音
-- Check transcript with OpenAI Whisper / 用 OpenAI Whisper 檢查語音辨識
-- Show word accuracy, fluency, and feedback / 顯示單字準確率、流暢度與回饋
-- Optional Apple STT comparison on macOS / macOS 可選用 Apple STT 比較
+### English
+
+- Listen to model audio.
+- Record your voice.
+- Check the transcript with OpenAI Whisper.
+- Show word accuracy, fluency, and feedback.
+- Optionally compare with Apple STT on macOS.
+
+### 繁體中文
+
+- 聽範例語音。
+- 錄下自己的聲音。
+- 用 OpenAI Whisper 檢查語音辨識結果。
+- 顯示單字準確率、流暢度與回饋。
+- macOS 可選用 Apple STT 進行比較。
 
 ---
 
-## Defaults / 預設行為
+## Defaults
 
 | Platform | Default provider | Default device |
 | --- | --- | --- |
@@ -96,15 +122,21 @@ http://localhost:6173
 | Windows | OpenAI Whisper only | CPU |
 | Linux | OpenAI Whisper only | CPU |
 
-Default Whisper backend: **OpenAI Whisper**
+English:
 
-Default Whisper model: **`large-v3-turbo`**
+- Default Whisper backend: **OpenAI Whisper**
+- Default Whisper model: **`large-v3-turbo`**
 
-預設 Whisper backend 是 **OpenAI Whisper**；預設模型是 **`large-v3-turbo`**。
+繁體中文：
+
+- 預設 Whisper backend：**OpenAI Whisper**
+- 預設 Whisper 模型：**`large-v3-turbo`**
 
 ---
 
 ## macOS Apple STT Permission
+
+### English
 
 Apple STT is optional and experimental. Whisper remains the main scoring provider.
 
@@ -132,9 +164,7 @@ Optional check:
 
 If Apple STT is blocked, the app can still show Whisper results and scores.
 
----
-
-## macOS Apple STT 權限
+### 繁體中文
 
 Apple STT 是選用與實驗性功能。Whisper 仍然是主要評分來源。
 
@@ -164,33 +194,50 @@ System Settings → Privacy & Security → Speech Recognition
 
 ---
 
-## Performance Note / 效能提醒
+## Performance Note
+
+### English
 
 Apple Silicon MPS was much faster than CPU on the tested local machine, but actual speed depends on hardware, audio length, model cache state, macOS, Python, and PyTorch versions.
+
+### 繁體中文
 
 在測試的 Apple Silicon macOS 機器上，MPS 明顯比 CPU 快；但實際速度會受到硬體、錄音長度、模型是否已 warm up、macOS、Python 與 PyTorch 版本影響。
 
 ---
 
-## Privacy / 隱私
+## Privacy
+
+### English
 
 Recordings are processed locally by default.
 
-預設情況下，錄音會在你的電腦本機處理。
-
 Optional Colab mode sends audio to a remote runtime. Do not use it for private recordings.
-
-選用的 Colab 模式會把音訊送到遠端 runtime。請不要用它處理私人錄音。
 
 Generated recordings, transcripts, runs, results, `model_audio`, and generated reports are local output files and should not be committed.
 
+### 繁體中文
+
+預設情況下，錄音會在你的電腦本機處理。
+
+選用的 Colab 模式會把音訊送到遠端 runtime。請不要用它處理私人錄音。
+
+產生的錄音、transcripts、runs、results、`model_audio` 與 generated reports 都是本機輸出檔，不應 commit 到 repo。
+
 ---
 
-## More Docs / 更多文件
+## More Docs
 
-- [README_en.md](README_en.md) — full English technical manual
-- [README_zh-TW.md](README_zh-TW.md) — 完整繁體中文技術文件
-- [README_BEGINNER.md](README_BEGINNER.md) — beginner English guide
-- [README_BEGINNER_zh-TW.md](README_BEGINNER_zh-TW.md) — 初學者繁體中文指南
-- [RELEASE_NOTES.md](RELEASE_NOTES.md)
-- [MANUAL_QA.md](MANUAL_QA.md)
+### English
+
+- [Full English technical manual](README_en.md)
+- [Beginner English guide](README_BEGINNER.md)
+- [Release notes](RELEASE_NOTES.md)
+- [Manual QA checklist](MANUAL_QA.md)
+
+### 繁體中文
+
+- [完整繁體中文技術文件](README_zh-TW.md)
+- [初學者繁體中文指南](README_BEGINNER_zh-TW.md)
+- [Release notes](RELEASE_NOTES.md)
+- [Manual QA checklist](MANUAL_QA.md)
