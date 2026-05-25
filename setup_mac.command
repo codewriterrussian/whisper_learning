@@ -4,7 +4,13 @@ set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT" || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
+if [[ -z "${WHISPER_DEVICE:-}" ]]; then
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    export WHISPER_DEVICE="mps"
+  else
+    export WHISPER_DEVICE="cpu"
+  fi
+fi
 
 say_step() {
   printf "\n== %s ==\n" "$1"

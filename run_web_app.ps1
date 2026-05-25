@@ -36,8 +36,8 @@ if (-not $npmCommand) {
 }
 $NpmBin = $npmCommand.Source
 
-if (-not $env:WHISPER_MODEL) { $env:WHISPER_MODEL = "large" }
-if (-not $env:WHISPER_DEVICE) { $env:WHISPER_DEVICE = "auto" }
+if (-not $env:WHISPER_MODEL) { $env:WHISPER_MODEL = "large-v3-turbo" }
+if (-not $env:WHISPER_DEVICE) { $env:WHISPER_DEVICE = "cpu" }
 if (-not $env:WHISPER_WARMUP) { $env:WHISPER_WARMUP = "1" }
 if (-not $env:WHISPER_RETRY_DEVICE) { $env:WHISPER_RETRY_DEVICE = "same" }
 if (-not $env:BACKEND_PORT) { $env:BACKEND_PORT = "6174" }

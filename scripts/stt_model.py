@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
+import os
 import platform
 import sys
 import time
@@ -18,6 +19,11 @@ from scripts.audio_similarity import preprocess_audio
 
 DEFAULT_STT_PROVIDER = "whisper"
 ALLOWED_STT_PROVIDERS = {"whisper", "apple", "colab_whisper", "both"}
+DEFAULT_APPLE_COMPARISON_TIMEOUT_SECONDS = 10.0
+
+
+def log_timing(message: str) -> None:
+    print(f"[timing] {message}", file=sys.stderr)
 
 
 def get_platform_key(system_name: Optional[str] = None) -> str:
@@ -62,6 +68,7 @@ def get_provider(
     model_name: Optional[str] = None,
     device: Optional[str] = None,
     fast_mode: bool = True,
+    native_timeout_seconds: Optional[float] = None,
 ) -> STTProvider:
     """Create an STT provider by name."""
     normalized_provider = (provider_name or DEFAULT_STT_PROVIDER).lower()
@@ -70,13 +77,22 @@ def get_provider(
         return WhisperProvider(language=language, model_name=model_name, device=device, fast_mode=fast_mode)
 
     if normalized_provider == "apple":
-        return AppleSpeechProvider(language=language)
+        return AppleSpeechProvider(language=language, timeout_seconds=native_timeout_seconds)
 
     if normalized_provider == "colab_whisper":
         return ColabWhisperProvider(language=language, model_name=model_name, fast_mode=fast_mode)
 
     allowed = ", ".join(sorted(ALLOWED_STT_PROVIDERS))
     raise ValueError(f"Unknown STT provider: {provider_name}. Expected one of: {allowed}")
+
+
+def get_apple_comparison_timeout_seconds() -> float:
+    raw_timeout = os.environ.get("APPLE_STT_COMPARISON_TIMEOUT") or str(DEFAULT_APPLE_COMPARISON_TIMEOUT_SECONDS)
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        timeout = DEFAULT_APPLE_COMPARISON_TIMEOUT_SECONDS
+    return max(1.0, timeout)
 
 
 def transcribe_audio(
@@ -128,9 +144,11 @@ def transcribe_both(
         "native_provider": native_provider or "",
         "_timings": {"whisperMs": 0, "appleMs": 0, native_timing_key: 0},
     }
+    provider_block_started = time.perf_counter()
 
     def run_whisper() -> tuple[dict[str, Any], int]:
         started = time.perf_counter()
+        log_timing("Whisper start")
         provider = get_provider(
             "whisper",
             language=language,
@@ -143,16 +161,23 @@ def transcribe_both(
             provider_result.update(provider.transcribe_with_retry(str(prepared_audio_path)))
         else:
             provider_result["transcript"] = provider.transcribe(str(prepared_audio_path))
-        return provider_result, round((time.perf_counter() - started) * 1000)
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        log_timing(f"Whisper end: {elapsed_ms}ms")
+        return provider_result, elapsed_ms
 
     def run_native() -> tuple[str, dict[str, Any], int]:
         started = time.perf_counter()
         if not native_provider:
             return "", {"status": "skipped", "transcript": "", "error": "No native STT provider on this platform."}, 0
 
+        log_timing(f"{get_native_provider_label(native_provider)} STT start")
         provider_result: dict[str, Any] = {"status": "pending", "transcript": "", "error": ""}
         try:
-            provider = get_provider(native_provider, language=language)
+            provider = get_provider(
+                native_provider,
+                language=language,
+                native_timeout_seconds=get_apple_comparison_timeout_seconds() if native_provider == "apple" else None,
+            )
             if hasattr(provider, "transcribe_result"):
                 structured_result = provider.transcribe_result(str(prepared_audio_path))  # type: ignore[attr-defined]
                 provider_result.update(structured_result)
@@ -162,19 +187,48 @@ def transcribe_both(
         except Exception as error:  # Apple Speech is optional and experimental.
             provider_result["status"] = "failed"
             provider_result["error"] = str(error)
-        return native_provider, provider_result, round((time.perf_counter() - started) * 1000)
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        log_timing(f"{get_native_provider_label(native_provider)} STT end: {elapsed_ms}ms")
+        return native_provider, provider_result, elapsed_ms
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    executor = ThreadPoolExecutor(max_workers=2)
+    try:
+        log_timing("Whisper + native provider block start; submitting concurrent jobs")
         whisper_future = executor.submit(run_whisper)
         native_future = executor.submit(run_native)
         result["whisper"], result["_timings"]["whisperMs"] = whisper_future.result()
-        native_name, native_result, native_ms = native_future.result()
+        native_wait_timeout = get_apple_comparison_timeout_seconds() if native_provider == "apple" else None
+        try:
+            native_name, native_result, native_ms = native_future.result(timeout=native_wait_timeout)
+        except FutureTimeoutError:
+            native_name = native_provider or ""
+            native_ms = round((time.perf_counter() - provider_block_started) * 1000)
+            native_result = {
+                "status": "failed",
+                "transcript": "",
+                "error": (
+                    f"{get_native_provider_label(native_provider)} STT timed out after "
+                    f"{get_apple_comparison_timeout_seconds():g}s. Continuing with Whisper result."
+                ),
+            }
+            native_future.cancel()
+            log_timing(f"{get_native_provider_label(native_provider)} STT comparison timeout; continuing with Whisper")
         if native_name:
             result[native_name] = native_result
             result["_timings"][native_timing_key] = native_ms
             if native_name == "apple":
                 result["_timings"]["appleMs"] = native_ms
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
+    provider_block_ms = round((time.perf_counter() - provider_block_started) * 1000)
+    slowest_provider_ms = max(result["_timings"].get("whisperMs", 0), result["_timings"].get(native_timing_key, 0))
+    result["_timings"]["providerBlockMs"] = provider_block_ms
+    result["_timings"]["providerOverheadMs"] = provider_block_ms - slowest_provider_ms
+    log_timing(
+        "Whisper + native provider block end: "
+        f"{provider_block_ms}ms slowest_provider={slowest_provider_ms}ms overhead={provider_block_ms - slowest_provider_ms}ms"
+    )
     return result
 
 

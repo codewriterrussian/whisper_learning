@@ -81,9 +81,9 @@ App 也可能會打開一個或兩個 command windows。這是正常的。
 
 ## macOS Whisper 裝置設定
 
-在 macOS Apple Silicon 上，本工具預設使用 CPU 執行 Whisper。CPU 速度可能比 MPS 慢，但對初學者與第一次安裝測試更穩定。
+在 macOS Apple Silicon 上，本工具預設使用 MPS 執行 OpenAI Whisper，讓本機檢查速度更快。
 
-MPS 仍可在 Advanced Mode 中手動選擇。不過部分 PyTorch / Whisper 組合可能遇到 SparseMPS 錯誤。如果 MPS 失敗，App 會自動改用 CPU 重試一次，避免整個檢查流程中斷。
+Intel macOS、Windows、Linux 預設使用 CPU。Apple Silicon 也可以在 Advanced Mode 手動改用 CPU。
 
 ---
 
@@ -177,9 +177,11 @@ Windows 安裝 Python 時請注意：
 
 這可能需要一些時間，這是正常現象。
 
-Beginner launcher 會先使用比較快的模型，讓第一次使用比較容易成功。
+預設本機 Whisper 模型是 `large-v3-turbo`。Apple Silicon Mac 預設使用 MPS；Intel Mac、Windows、Linux 預設使用 CPU。
 
-之後你可以在 **Advanced Mode** 切換成更高準確度的設定。
+第一次啟動或第一次檢查錄音可能比較慢，因為 Whisper 正在下載、載入或 warmup。之後的檢查通常會比較快。
+
+macOS 支援時可以使用 Whisper + Apple STT comparison。Apple STT 可能先回傳，Whisper 的分數可能稍後才出現。
 
 ---
 
@@ -224,7 +226,7 @@ Simple Mode 只會顯示：
 
 只有當你熟悉技術設定時，才建議使用 **Advanced Mode**。
 
-Advanced Mode 會顯示模型名稱與 device 選項。
+Advanced Mode 會顯示模型名稱與 device 選項。Apple Silicon Mac 應該預設顯示 MPS；Intel Mac、Windows、Linux 應該預設顯示 CPU。
 
 大部分初學者不需要使用 Advanced Mode。
 

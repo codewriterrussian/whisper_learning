@@ -7,7 +7,7 @@ if "%FRONTEND_PORT%"=="" set FRONTEND_PORT=6173
 if "%FRONTEND_HOST%"=="" set FRONTEND_HOST=127.0.0.1
 if "%VITE_API_BASE%"=="" set VITE_API_BASE=http://localhost:%BACKEND_PORT%
 if "%WHISPER_MODEL%"=="" set WHISPER_MODEL=large-v3-turbo
-if "%WHISPER_DEVICE%"=="" set WHISPER_DEVICE=auto
+if "%WHISPER_DEVICE%"=="" set WHISPER_DEVICE=cpu
 if "%WHISPER_WARMUP%"=="" set WHISPER_WARMUP=0
 if "%STT_LANGUAGE_AUTO_OVERRIDE%"=="" set STT_LANGUAGE_AUTO_OVERRIDE=0
 if "%PYTHON%"=="" if exist "%~dp0.venv\Scripts\python.exe" set PYTHON=%~dp0.venv\Scripts\python.exe

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "test": "node --test run_storage.test.js"
+    "test": "node --test *.test.js"
   },
   "dependencies": {
     "cors": "latest",

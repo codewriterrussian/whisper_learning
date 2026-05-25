@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL="${MODEL:-large}"
+MODEL="${MODEL:-large-v3-turbo}"
 DEVICE="${DEVICE:-auto}"
 LANGUAGE="${LANGUAGE:-}"
 STT_PROVIDER="${STT_PROVIDER:-whisper}"

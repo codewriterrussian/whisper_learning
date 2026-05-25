@@ -12,9 +12,10 @@ A local-first pronunciation practice app for listening to model audio, recording
 
 Whisper is the recommended STT provider on every platform. Platform defaults are:
 
-- macOS: Whisper + Apple STT. Whisper remains the main scoring provider; Apple STT is the native comparison provider.
-- Windows: Whisper only
-- Linux: Whisper only
+- Apple Silicon macOS: OpenAI Whisper + Apple STT comparison when supported, with Whisper on MPS by default.
+- Intel macOS: OpenAI Whisper + Apple STT comparison when supported, with Whisper on CPU by default.
+- Windows: OpenAI Whisper only, CPU by default.
+- Linux: OpenAI Whisper only, CPU by default.
 - Optional remote comparison: Google Colab GPU Whisper worker
 
 ## Setup
@@ -28,11 +29,11 @@ The setup launcher tries to install Python and FFmpeg if they are missing, creat
 
 Whisper model files are downloaded automatically the first time the app needs them. This can take a while and needs enough disk space for the selected model.
 
-### macOS Whisper device
+### Whisper model and device defaults
 
-On Apple Silicon macOS, this app defaults Whisper to CPU for stable beginner use. CPU can be slower than MPS, but it avoids known PyTorch SparseMPS failures during Whisper transcription.
+OpenAI Whisper is the default local backend and the default model is `large-v3-turbo`. Apple Silicon Macs use MPS by default. Intel Macs, Windows, and Linux use CPU by default. Faster Whisper is not the default; old `faster-whisper` backend settings warn and fall back to OpenAI Whisper. MLX remains opt-in experimental only.
 
-MPS remains available in Advanced Mode. If MPS fails, the app retries once on CPU and reports a non-fatal fallback warning.
+First launch or the first recording may be slower because Whisper downloads, loads, or warms the selected model/device. Later requests should be faster. In macOS Whisper + Apple STT comparison mode, Apple STT may return first while Whisper scoring arrives later.
 
 If Windows blocks the setup script, open PowerShell and run:
 
@@ -136,7 +137,7 @@ On Windows:
 
 ## Whisper STT
 
-Whisper remains the default provider. The default model is `large` because it is more reliable for Polish and multilingual speaking practice. `medium` is still available as a faster rough-check mode, and `large-v3-turbo` can be selected when your Whisper install supports it.
+OpenAI Whisper remains the default local provider. The default model is `large-v3-turbo` because it is a faster strict-check option for multilingual speaking practice when your Whisper install supports it. `medium` is still available as a faster rough-check mode, and `large` remains available for slower strict checks.
 
 CLI example:
 
@@ -144,7 +145,7 @@ CLI example:
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider whisper \
   --language pl \
-  --model large \
+  --model large-v3-turbo \
   --device auto \
   --fast-mode \
   --output transcripts/my_recording.txt
@@ -153,7 +154,7 @@ python scripts/stt_model.py recordings/my_recording.wav \
 Shell helper:
 
 ```bash
-./scripts/transcribe.sh recordings/my_recording.wav transcripts --language pl --model large --device auto
+./scripts/transcribe.sh recordings/my_recording.wav transcripts --language pl --model large-v3-turbo --device auto
 ```
 
 Fast mode is enabled by default for short practice recordings:
@@ -279,7 +280,7 @@ On macOS, `both` checks the same recording with Whisper and Apple STT in paralle
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider both \
   --language pl \
-  --model large \
+  --model large-v3-turbo \
   --device auto \
   --output transcripts/my_recording.txt
 ```
@@ -311,8 +312,8 @@ Common environment variables:
 | --- | --- | --- |
 | `PYTHON` | auto-detected by launcher | Python executable for backend STT/TTS scripts. `run_web_app.sh` prefers the local `stt_whisper` Conda environment when present. |
 | `EDGE_TTS_PYTHON` | same as `PYTHON` | Python executable used for target audio generation. |
-| `WHISPER_MODEL` | `large` | Default Whisper model. |
-| `WHISPER_DEVICE` | `auto` | Whisper device: `auto`, `cpu`, `mps`, or `cuda`. |
+| `WHISPER_MODEL` | `large-v3-turbo` | Default OpenAI Whisper model. |
+| `WHISPER_DEVICE` | `mps` on Apple Silicon macOS, otherwise `cpu` | Whisper device: `auto`, `cpu`, `mps`, or `cuda`. |
 | `WHISPER_WARMUP` | `1` in launcher scripts | Preload the Whisper model on backend startup. |
 | `WHISPER_RETRY_DEVICE` | `same` | Use `same` or `cpu` for safer retry after invalid Whisper output. |
 | `COLAB_STT_URL` | unset | Public `/transcribe` URL from the optional Colab Whisper worker. |

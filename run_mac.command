@@ -10,7 +10,13 @@ export FRONTEND_PORT="${FRONTEND_PORT:-6173}"
 export FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 export VITE_API_BASE="${VITE_API_BASE:-http://localhost:${BACKEND_PORT}}"
 export WHISPER_MODEL="${WHISPER_MODEL:-large-v3-turbo}"
-export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
+if [[ -z "${WHISPER_DEVICE:-}" ]]; then
+  if [[ "$(uname -m)" == "arm64" ]]; then
+    export WHISPER_DEVICE="mps"
+  else
+    export WHISPER_DEVICE="cpu"
+  fi
+fi
 export WHISPER_WARMUP="${WHISPER_WARMUP:-0}"
 export STT_LANGUAGE_AUTO_OVERRIDE="${STT_LANGUAGE_AUTO_OVERRIDE:-0}"
 

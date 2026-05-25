@@ -74,9 +74,9 @@ If one is missing, the setup script or System Check will tell you what to instal
 
 ## macOS Whisper Device
 
-On Apple Silicon macOS, this app defaults Whisper to CPU for stable beginner use. CPU can be slower than MPS, but it avoids known PyTorch SparseMPS failures during Whisper transcription.
+On Apple Silicon macOS, this app defaults OpenAI Whisper to MPS for faster local checking.
 
-MPS remains available in Advanced Mode. If MPS fails, the app retries once on CPU and reports a non-fatal fallback warning.
+On Intel macOS, Windows, and Linux, this app defaults Whisper to CPU for compatibility. CPU remains available in Advanced Mode on Apple Silicon too.
 
 ## macOS Step By Step
 
@@ -147,7 +147,11 @@ This can take a while.
 
 This is normal.
 
-The beginner launcher starts with a faster model for first-time use. Later, you can switch to higher accuracy in **Advanced Mode**.
+The default local Whisper model is `large-v3-turbo`. Apple Silicon Macs use MPS by default, while Intel Macs, Windows, and Linux use CPU by default.
+
+First launch or the first recording may be slower because Whisper is downloading, loading, or warming up. Later checks should be faster.
+
+On macOS, the app can use Whisper + Apple STT comparison when supported. Apple STT may return first, while the Whisper score can arrive later.
 
 ## Microphone Permission
 
@@ -186,7 +190,7 @@ Simple Mode shows only:
 
 Use **Advanced Mode** only if you are comfortable with technical settings.
 
-Advanced Mode shows model names and device options. Most beginners do not need those.
+Advanced Mode shows model names and device options. Apple Silicon Mac should show MPS by default; Intel Mac, Windows, and Linux should show CPU by default. Most beginners do not need to change those.
 
 ## System Check
 

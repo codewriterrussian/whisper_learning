@@ -207,14 +207,12 @@ function getFfmpegInstallFix() {
 }
 
 function checkWhisperDevice() {
-  const effectiveDevice = process.env.WHISPER_DEVICE || (process.platform === "darwin" ? "cpu" : "auto");
+  const recommendedDevice = process.platform === "darwin" && process.arch === "arm64" ? "mps" : "cpu";
+  const effectiveDevice = process.env.WHISPER_DEVICE || recommendedDevice;
   if (process.platform === "darwin" && process.arch === "arm64") {
-    const detail = effectiveDevice === "cpu"
-      ? "Whisper CPU mode: recommended for stable beginner use. MPS mode is experimental and may fail with PyTorch SparseMPS errors."
-      : `Whisper device is ${effectiveDevice}. MPS mode is experimental and may fail with PyTorch SparseMPS errors; CPU is recommended for beginner use.`;
-    return status(true, detail);
+    return status(true, `Whisper device: ${effectiveDevice}. Apple Silicon Macs use MPS by default for faster OpenAI Whisper warmup and scoring.`);
   }
-  return status(true, `Whisper device: ${effectiveDevice}`);
+  return status(true, `Whisper device: ${effectiveDevice}. CPU is the default on Intel Mac, Windows, and Linux.`);
 }
 
 function checkWritableDirs() {

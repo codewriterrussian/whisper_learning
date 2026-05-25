@@ -120,16 +120,16 @@
               <option value="large-v3-turbo">Fast Strict - Large Turbo</option>
               <option value="medium">Practice Check - Medium</option>
             </select>
-            <small class="field-help">Default uses the server WHISPER_MODEL, normally Large. Turbo is faster if your Whisper install supports it.</small>
+            <small class="field-help">Default uses the server WHISPER_MODEL, normally Large Turbo. First use may be slower while the model warms up.</small>
           </label>
 
           <label class="field">
             <span>Comparison mode</span>
             <select id="sttProvider">
-              <option value="whisper" selected>Whisper only</option>
+              <option value="whisper" selected>OpenAI Whisper only</option>
               <option value="apple">Apple STT only</option>
               <option value="colab_whisper">Colab Whisper GPU - experimental</option>
-              <option value="whisper_apple">Whisper + Apple STT</option>
+              <option value="whisper_apple">OpenAI Whisper + Apple STT</option>
             </select>
             <small id="sttProviderHelp" class="field-help">Whisper is default. Native STT options appear only when supported on this platform.</small>
             <small id="remoteSttWarning" class="field-help" hidden>
@@ -137,15 +137,14 @@
             </small>
           </label>
 
-          <label class="field">
+          <label id="whisperDeviceField" class="field">
             <span>Processing device</span>
             <select id="whisperDevice">
-              <option value="auto">Auto - use MPS when available</option>
+              <option value="auto">Auto / Recommended</option>
               <option value="mps">MPS - Apple Silicon GPU</option>
-              <option value="cuda">CUDA - NVIDIA GPU</option>
               <option value="cpu">CPU - compatibility mode</option>
             </select>
-            <small id="whisperDeviceHelp" class="field-help">Auto chooses the best available Whisper device for this platform.</small>
+            <small id="whisperDeviceHelp" class="field-help">Auto uses the backend recommendation for this platform.</small>
           </label>
         </details>
 
@@ -363,6 +362,22 @@
               <div>
                 <dt>Provider statuses</dt>
                 <dd id="debugProviderStatuses">--</dd>
+              </div>
+              <div>
+                <dt>Sentence text</dt>
+                <dd id="debugSentenceText">--</dd>
+              </div>
+              <div>
+                <dt>Target language hint</dt>
+                <dd id="debugTargetLanguageHint">--</dd>
+              </div>
+              <div>
+                <dt>Selected language</dt>
+                <dd id="debugSelectedLanguage">--</dd>
+              </div>
+              <div>
+                <dt>Final STT language</dt>
+                <dd id="debugFinalSttLanguage">--</dd>
               </div>
               <div>
                 <dt>Result source</dt>

@@ -29,11 +29,13 @@ if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
 fi
 
 export PYTHON="$PYTHON_BIN"
-export WHISPER_MODEL="${WHISPER_MODEL:-large}"
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  export WHISPER_DEVICE="${WHISPER_DEVICE:-cpu}"
-else
-  export WHISPER_DEVICE="${WHISPER_DEVICE:-auto}"
+export WHISPER_MODEL="${WHISPER_MODEL:-large-v3-turbo}"
+if [[ -z "${WHISPER_DEVICE:-}" ]]; then
+  if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    export WHISPER_DEVICE="mps"
+  else
+    export WHISPER_DEVICE="cpu"
+  fi
 fi
 export WHISPER_WARMUP="${WHISPER_WARMUP:-1}"
 export WHISPER_RETRY_DEVICE="${WHISPER_RETRY_DEVICE:-same}"

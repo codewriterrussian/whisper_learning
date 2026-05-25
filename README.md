@@ -41,18 +41,19 @@ Whisper Speaking Practice 可以幫助使用者練習外語發音，主要流程
 
 | 平台 | 預設 STT 模式 | 說明 |
 | --- | --- | --- |
-| macOS | Whisper + Apple STT | Whisper 是主要評分來源；Apple STT 作為 macOS 原生比較來源 |
-| Windows | Whisper only | Windows 預設只使用 Whisper |
-| Linux | Whisper only | Linux 預設只使用 Whisper |
+| Apple Silicon macOS | Whisper + Apple STT | Whisper 是主要評分來源；預設使用 MPS |
+| Intel macOS | Whisper + Apple STT | Whisper 是主要評分來源；預設使用 CPU |
+| Windows | Whisper only | Windows 預設只使用 Whisper；預設使用 CPU |
+| Linux | Whisper only | Linux 預設只使用 Whisper；預設使用 CPU |
 | 選用遠端模式 | Google Colab GPU Whisper Worker | 實驗性功能，用於遠端 GPU Whisper 比對 |
 
 macOS 的 Apple STT 是選用與實驗性功能；如果失敗或被跳過，仍然可以正常使用 Whisper。
 
 ### macOS Whisper 裝置設定
 
-在 macOS Apple Silicon 上，本工具預設使用 CPU 執行 Whisper。CPU 速度可能比 MPS 慢，但對初學者與第一次安裝測試更穩定。
+在 macOS Apple Silicon 上，本工具預設使用 MPS 執行 OpenAI Whisper，讓本機檢查速度更快。
 
-MPS 仍可在 Advanced Mode 中手動選擇。不過部分 PyTorch / Whisper 組合可能遇到 SparseMPS 錯誤。如果 MPS 失敗，App 會自動改用 CPU 重試一次，避免整個檢查流程中斷。
+Intel macOS、Windows、Linux 預設使用 CPU。Apple Silicon 也可以在 Advanced Mode 手動改用 CPU。
 
 ---
 
@@ -306,18 +307,18 @@ Whisper 是此 repo 的預設 STT provider。
 預設模型是：
 
 ```text
-large
+large-v3-turbo
 ```
 
-原因是 `large` 對波蘭語與多語言發音練習通常比較可靠。
+原因是 `large-v3-turbo` 對多語言發音練習通常有較好的速度與嚴格檢查平衡。
 
 其他選項：
 
 | 模型 | 用途 |
 | --- | --- |
 | `medium` | 速度較快，適合粗略檢查 |
-| `large` | 預設嚴格檢查，準確率較好，但第一次啟動較慢 |
-| `large-v3-turbo` | 如果目前安裝的 Whisper 支援，通常比 `large` 快很多 |
+| `large-v3-turbo` | 預設嚴格檢查，通常比 `large` 快很多 |
+| `large` | 較慢的嚴格檢查選項 |
 
 CLI 範例：
 
@@ -325,7 +326,7 @@ CLI 範例：
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider whisper \
   --language pl \
-  --model large \
+  --model large-v3-turbo \
   --device auto \
   --fast-mode \
   --output transcripts/my_recording.txt
@@ -334,7 +335,7 @@ python scripts/stt_model.py recordings/my_recording.wav \
 Shell helper：
 
 ```bash
-./scripts/transcribe.sh recordings/my_recording.wav transcripts --language pl --model large --device auto
+./scripts/transcribe.sh recordings/my_recording.wav transcripts --language pl --model large-v3-turbo --device auto
 ```
 
 短錄音練習預設啟用 fast mode：
@@ -523,7 +524,7 @@ requests.get("http://127.0.0.1:7860/health").json()
 python scripts/stt_model.py recordings/my_recording.wav \
   --stt-provider both \
   --language pl \
-  --model large \
+  --model large-v3-turbo \
   --device auto \
   --output transcripts/my_recording.txt
 ```
@@ -569,8 +570,8 @@ results/
 | --- | --- | --- |
 | `PYTHON` | launcher 自動偵測 | backend STT / TTS 腳本使用的 Python executable；`run_web_app.sh` 會優先使用本機 `stt_whisper` Conda 環境 |
 | `EDGE_TTS_PYTHON` | 同 `PYTHON` | 產生 target audio 使用的 Python executable |
-| `WHISPER_MODEL` | `large` | 預設 Whisper 模型 |
-| `WHISPER_DEVICE` | `auto` | Whisper device：`auto`、`cpu`、`mps`、`cuda` |
+| `WHISPER_MODEL` | `large-v3-turbo` | 預設 OpenAI Whisper 模型 |
+| `WHISPER_DEVICE` | Apple Silicon macOS 為 `mps`，其他平台為 `cpu` | Whisper device：`auto`、`cpu`、`mps`、`cuda` |
 | `WHISPER_WARMUP` | launcher scripts 中為 `1` | backend 啟動時預載 Whisper 模型 |
 | `WHISPER_RETRY_DEVICE` | `same` | Whisper 輸出無效時，使用 `same` 或 `cpu` 進行較安全的 retry |
 | `COLAB_STT_URL` | 未設定 | 選用 Colab Whisper worker 的 public `/transcribe` URL |

@@ -6,6 +6,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
+import { inferLanguageFromTargetText, validateKnownTargetLanguageHints } from "./language_metadata.js";
 import { buildCanonicalResult, buildRunPaths, createAttemptId, toRootRelative as toRootRelativePath } from "./run_storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,11 +19,13 @@ const PORT = process.env.PORT || 6174;
 const PYTHON = process.env.PYTHON || "python";
 const EDGE_TTS_PYTHON = process.env.EDGE_TTS_PYTHON || PYTHON;
 const DEFAULT_STT_PROVIDER = process.platform === "darwin" ? "both" : "whisper";
-const DEFAULT_WHISPER_MODEL = "large";
+const DEFAULT_WHISPER_MODEL = "large-v3-turbo";
 const ALLOWED_LANGUAGES = new Set(["en", "de", "nl", "pl", "ru", "ja", "vi", "zh"]);
 const ALLOWED_WHISPER_MODELS = new Set(["tiny", "base", "small", "medium", "large", "large-v3", "large-v3-turbo", "turbo"]);
 const ALLOWED_WHISPER_DEVICES = new Set(["auto", "cpu", "mps", "cuda"]);
+const ALLOWED_WHISPER_BACKENDS = new Set(["openai", "mlx"]);
 const ALLOWED_STT_PROVIDERS = new Set(["whisper", "apple", "colab_whisper", "both"]);
+const ALLOWED_COMPARISON_MODES = new Set(["whisper", "apple", "whisper_apple", "colab_whisper", "both"]);
 const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_MB || 25) * 1024 * 1024;
 const ALLOWED_AUDIO_EXTENSIONS = new Set([".webm", ".wav", ".m4a", ".mp3", ".ogg"]);
 const ALLOWED_AUDIO_MIME_PREFIXES = ["audio/"];
@@ -80,6 +83,7 @@ let sttWorkerBuffer = "";
 let nextSttRequestId = 1;
 const pendingSttRequests = new Map();
 let practiceRequestInProgress = false;
+let lastPracticeWhisperDevice = "";
 
 app.use(cors());
 app.use(express.json());
@@ -104,6 +108,14 @@ function getPlatformKey() {
   return process.platform;
 }
 
+function isAppleSiliconMac() {
+  return process.platform === "darwin" && process.arch === "arm64";
+}
+
+function getRecommendedWhisperDevice() {
+  return isAppleSiliconMac() ? "mps" : "cpu";
+}
+
 function getNativeProvider() {
   const platformKey = getPlatformKey();
   if (platformKey === "darwin") {
@@ -125,6 +137,19 @@ function getProviderLabel(provider) {
   return "Native STT";
 }
 
+function normalizeWhisperBackend(backend = process.env.WHISPER_BACKEND) {
+  const requested = String(backend || "openai").toLowerCase().replace("_", "-");
+  if (ALLOWED_WHISPER_BACKENDS.has(requested)) {
+    return requested;
+  }
+  if (requested === "faster-whisper") {
+    console.warn("[WARN] Faster Whisper has been removed from this repo. Falling back to OpenAI Whisper.");
+  } else if (requested) {
+    console.warn(`[WARN] Unsupported Whisper backend '${requested}'. Falling back to OpenAI Whisper.`);
+  }
+  return "openai";
+}
+
 function isColabConfigured() {
   return Boolean((process.env.COLAB_STT_URL || "").trim());
 }
@@ -132,12 +157,12 @@ function isColabConfigured() {
 function getSttProviderOptions() {
   const nativeProvider = getNativeProvider();
   const providers = [
-    { value: "whisper", label: "Whisper only", available: true },
+    { value: "whisper", label: "OpenAI Whisper only", available: true },
   ];
 
   if (nativeProvider === "apple") {
     providers.push({ value: "apple", label: "Apple Speech only - experimental", available: true });
-    providers.push({ value: "both", label: "Whisper + Apple STT", available: true });
+    providers.push({ value: "both", label: "OpenAI Whisper + Apple STT", available: true });
   }
   providers.push({
     value: "colab_whisper",
@@ -152,20 +177,51 @@ function getSttProviderOptions() {
 }
 
 function getDeviceOptions() {
-  const platformKey = getPlatformKey();
-  if (platformKey === "darwin" && process.arch === "arm64") {
+  if (isAppleSiliconMac()) {
     return [
-      { value: "cpu", label: "CPU - stable beginner default" },
-      { value: "auto", label: "Auto - experimental; may use MPS" },
-      { value: "mps", label: "MPS - experimental Apple Silicon GPU" },
+      { value: "auto", label: "Auto / Recommended - MPS" },
+      { value: "mps", label: "MPS - Apple Silicon GPU" },
+      { value: "cpu", label: "CPU - compatibility mode" },
     ];
   }
 
   return [
-    { value: "auto", label: "Auto - use CUDA when available" },
-    { value: "cuda", label: "CUDA - NVIDIA GPU" },
+    { value: "auto", label: "Auto / Recommended - CPU" },
     { value: "cpu", label: "CPU - compatibility mode" },
+    { value: "mps", label: "MPS is only available on Apple Silicon Macs.", disabled: true },
   ];
+}
+
+function getAvailableWhisperDevices() {
+  return getDeviceOptions()
+    .filter((device) => !device.disabled)
+    .map((device) => device.value);
+}
+
+function getClientConfig() {
+  const recommendedProcessingDevice = getRecommendedWhisperDevice();
+  const selectedWhisperDevice = normalizeWhisperDevice(process.env.WHISPER_DEVICE || recommendedProcessingDevice);
+  const availableProviders = getSttProviderOptions();
+  return {
+    platform: getPlatformKey(),
+    architecture: process.arch,
+    arch: process.arch,
+    defaultSttProvider: DEFAULT_STT_PROVIDER,
+    defaultWhisperBackend: normalizeWhisperBackend(),
+    defaultWhisperModel: normalizeWhisperModel("default"),
+    recommendedProcessingDevice,
+    recommendedWhisperDevice: recommendedProcessingDevice,
+    selectedWhisperDevice,
+    defaultWhisperDevice: selectedWhisperDevice,
+    availableProviders,
+    sttProviders: availableProviders,
+    whisperDevices: getDeviceOptions(),
+    availableWhisperDevices: getAvailableWhisperDevices(),
+    appleSttSupported: getNativeProvider() === "apple",
+    nativeProvider: getNativeProvider(),
+    colabConfigured: isColabConfigured(),
+    colabTimeoutSec: Number(process.env.COLAB_STT_TIMEOUT || 120),
+  };
 }
 
 function toRootRelative(filePath) {
@@ -174,13 +230,6 @@ function toRootRelative(filePath) {
 
 function normalizeLanguage(language) {
   return ALLOWED_LANGUAGES.has(language) ? language : "en";
-}
-
-function inferLanguageFromTargetText(targetText) {
-  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/u.test(targetText)) {
-    return "pl";
-  }
-  return "";
 }
 
 function shouldAutoOverrideLanguage() {
@@ -207,25 +256,30 @@ function normalizeWhisperModel(model) {
 }
 
 function normalizeWhisperDevice(device) {
-  const requested = ALLOWED_WHISPER_DEVICES.has(device) ? device : process.env.WHISPER_DEVICE;
-  const fallbackDevice = getPlatformKey() === "darwin" ? "cpu" : "auto";
-  const normalized = ALLOWED_WHISPER_DEVICES.has(requested) ? requested : fallbackDevice;
-  if (normalized === "mps" && getPlatformKey() !== "darwin") {
-    return "auto";
+  const envDevice = process.env.WHISPER_DEVICE || getRecommendedWhisperDevice();
+  const requested = ALLOWED_WHISPER_DEVICES.has(device) ? device : envDevice;
+  const normalized = ALLOWED_WHISPER_DEVICES.has(requested) ? requested : getRecommendedWhisperDevice();
+  if (normalized === "auto") {
+    return getRecommendedWhisperDevice();
+  }
+  if (normalized === "mps" && !isAppleSiliconMac()) {
+    return "cpu";
   }
   return normalized;
 }
 
-function isMpsSparseError(message) {
-  const text = String(message || "").toLowerCase();
-  return (
-    text.includes("sparsemps") ||
-    text.includes("aten::empty.memory_format") ||
-    text.includes("sparse_coo_tensor") ||
-    text.includes("mps backend") ||
-    text.includes("not currently supported on the mps backend") ||
-    text.includes("could not run")
-  );
+function getComparisonModeForRequest(sttProvider, activeNativeProvider) {
+  if (sttProvider === "both" && activeNativeProvider === "apple") {
+    return "whisper_apple";
+  }
+  return sttProvider;
+}
+
+function normalizeComparisonMode(mode, sttProvider, activeNativeProvider) {
+  const requested = String(mode || "").toLowerCase();
+  return ALLOWED_COMPARISON_MODES.has(requested)
+    ? requested
+    : getComparisonModeForRequest(sttProvider, activeNativeProvider);
 }
 
 function normalizeSttProvider(provider) {
@@ -453,8 +507,10 @@ function startSttWorker() {
     env: {
       ...process.env,
       WHISPER_MODEL: process.env.WHISPER_MODEL || DEFAULT_WHISPER_MODEL,
-      WHISPER_DEVICE: process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto"),
+      WHISPER_DEVICE: process.env.WHISPER_DEVICE || getRecommendedWhisperDevice(),
+      WHISPER_BACKEND: normalizeWhisperBackend(),
       WHISPER_RETRY_DEVICE: process.env.WHISPER_RETRY_DEVICE || "same",
+      WHISPER_KEEP_MULTIPLE_DEVICE_MODELS: process.env.WHISPER_KEEP_MULTIPLE_DEVICE_MODELS || "0",
     },
   });
 
@@ -527,34 +583,6 @@ function runSttWorker(payload) {
       }
     });
   });
-}
-
-async function runSttWorkerWithMpsFallback(payload) {
-  try {
-    return await runSttWorker(payload);
-  } catch (error) {
-    if (payload.device === "cpu" || !isMpsSparseError(error.message)) {
-      throw error;
-    }
-    console.warn("[WARN] Whisper MPS failed; retrying STT worker request on CPU.");
-    const retryResult = await runSttWorker({ ...payload, device: "cpu" });
-    if (retryResult && typeof retryResult === "object") {
-      if (retryResult.whisper && typeof retryResult.whisper === "object") {
-        retryResult.whisper.fallbackUsed = true;
-        retryResult.whisper.fallbackReason = "mps_sparse_backend_error";
-        retryResult.whisper.requestedDevice = payload.device;
-        retryResult.whisper.actualDevice = "cpu";
-        retryResult.whisper.error = retryResult.whisper.error || "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
-      } else {
-        retryResult.fallbackUsed = true;
-        retryResult.fallbackReason = "mps_sparse_backend_error";
-        retryResult.requestedDevice = payload.device;
-        retryResult.actualDevice = "cpu";
-        retryResult.error = retryResult.error || "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
-      }
-    }
-    return retryResult;
-  }
 }
 
 function writeTranscriptOutputs(transcriptPath, sttProvider, transcriptResult) {
@@ -748,20 +776,46 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, message: "backend running" });
 });
 
+app.get("/api/config", (_req, res) => {
+  res.json(getClientConfig());
+});
+
 app.get("/api/bootstrap", (_req, res) => {
+  const clientConfig = getClientConfig();
   res.json({
     ok: true,
-    platform: getPlatformKey(),
-    arch: process.arch,
-    nativeProvider: getNativeProvider(),
-    colabConfigured: isColabConfigured(),
-    colabTimeoutSec: Number(process.env.COLAB_STT_TIMEOUT || 120),
-    defaultSttProvider: DEFAULT_STT_PROVIDER,
-    sttProviders: getSttProviderOptions(),
-    whisperDevices: getDeviceOptions(),
-    defaultWhisperDevice: normalizeWhisperDevice(process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto")),
-    defaultWhisperModel: normalizeWhisperModel("default"),
+    ...clientConfig,
   });
+});
+
+app.post("/api/stt-warmup", async (req, res) => {
+  try {
+    const whisperBackend = normalizeWhisperBackend();
+    if (whisperBackend !== "openai") {
+      res.json({
+        ok: true,
+        status: "skipped",
+        backend: whisperBackend,
+        message: "Only OpenAI Whisper uses the CPU/MPS processing device selector.",
+      });
+      return;
+    }
+
+    const modelName = normalizeWhisperModel(req.body.whisperModel);
+    const hasUiDeviceOverride = Boolean(typeof req.body.whisperDevice === "string" && req.body.whisperDevice.trim());
+    const whisperDevice = normalizeWhisperDevice(req.body.whisperDevice);
+    console.log(`[INFO] warmup processing device ${hasUiDeviceOverride ? "selected by UI" : "from server default"}: ${whisperDevice}`);
+    const reason = String(req.body.reason || "frontend device selection");
+    const result = await runSttWorker({
+      action: "warmup",
+      modelName,
+      device: whisperDevice,
+      reason,
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: formatPracticeError(error) });
+  }
 });
 
 app.get("/api/system-check", (_req, res) => {
@@ -790,6 +844,7 @@ app.post("/api/target-audio", async (req, res) => {
     ensureDirs();
 
     let language = normalizeLanguage(req.body.language);
+    const selectedLanguage = language;
     const targetText = (req.body.targetText || "").trim();
     const audioKind = req.body.audioKind === "word" ? "word" : "target";
 
@@ -797,13 +852,12 @@ app.post("/api/target-audio", async (req, res) => {
       return res.status(400).json({ ok: false, error: "targetText is required" });
     }
 
-    const inferredLanguage = inferLanguageFromTargetText(targetText);
-    if (inferredLanguage && inferredLanguage !== language) {
+    const targetLanguageHint = inferLanguageFromTargetText(targetText);
+    if (targetLanguageHint && targetLanguageHint !== language) {
       if (shouldAutoOverrideLanguage()) {
-        const selectedLanguage = language;
-        language = inferredLanguage;
+        language = targetLanguageHint;
         console.log(`[STT] ${formatLanguageSelectionMessage({
-          targetLanguageHint: inferredLanguage,
+          targetLanguageHint,
           selectedLanguage,
           usedLanguage: language,
           autoOverride: true,
@@ -811,7 +865,7 @@ app.post("/api/target-audio", async (req, res) => {
         })}`);
       } else {
         console.log(`[STT] ${formatLanguageSelectionMessage({
-          targetLanguageHint: inferredLanguage,
+          targetLanguageHint,
           selectedLanguage: language,
           usedLanguage: language,
           autoOverride: false,
@@ -838,6 +892,15 @@ app.post("/api/target-audio", async (req, res) => {
     res.json({
       ok: true,
       language,
+      selectedLanguage,
+      targetLanguageHint,
+      finalSttLanguage: language,
+      languageDebug: {
+        sentenceText: targetText,
+        targetLanguageHint,
+        selectedLanguage,
+        finalSttLanguage: language,
+      },
       audioUrl: `/model-audio/${audioKind}.mp3?t=${Date.now()}`,
     });
   } catch (error) {
@@ -874,13 +937,25 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     logAttempt(attemptId, "practice request started");
 
     let language = normalizeLanguage(req.body.language);
+    const selectedLanguage = language;
     const requestedProvider = String(req.body.sttProvider || DEFAULT_STT_PROVIDER);
     const sttProvider = normalizeSttProvider(req.body.sttProvider);
     const nativeProvider = getNativeProvider();
     const activeNativeProvider = sttProvider === "both" ? nativeProvider : (sttProvider === "apple" || sttProvider === "colab_whisper" ? sttProvider : "");
     const nativeProviderLabel = getProviderLabel(activeNativeProvider || nativeProvider);
+    const hasUiDeviceOverride = Boolean(typeof req.body.whisperDevice === "string" && req.body.whisperDevice.trim());
     const whisperModel = normalizeWhisperModel(req.body.whisperModel);
     const whisperDevice = normalizeWhisperDevice(req.body.whisperDevice);
+    console.log(`[INFO] request processing device ${hasUiDeviceOverride ? "selected by UI" : "from server default"}: ${whisperDevice}`);
+    if (lastPracticeWhisperDevice && lastPracticeWhisperDevice !== whisperDevice) {
+      console.warn(`[WARN] Processing device changed from ${lastPracticeWhisperDevice} to ${whisperDevice}`);
+    }
+    lastPracticeWhisperDevice = whisperDevice;
+    if (req.body.whisperBackend) {
+      console.warn("[WARN] Request-level whisperBackend is ignored. Set WHISPER_BACKEND=openai or WHISPER_BACKEND=mlx before starting the backend.");
+    }
+    const whisperBackend = sttProvider === "apple" || sttProvider === "colab_whisper" ? "" : normalizeWhisperBackend();
+    const comparisonMode = normalizeComparisonMode(req.body.comparisonMode, sttProvider, activeNativeProvider);
     const manualTrimmed = req.body.manualTrimmed === "true";
     const targetText = (req.body.targetText || "").trim();
 
@@ -888,13 +963,12 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       return res.status(400).json({ ok: false, error: "targetText is required" });
     }
 
-    const inferredLanguage = inferLanguageFromTargetText(targetText);
-    if (inferredLanguage && inferredLanguage !== language) {
+    const targetLanguageHint = inferLanguageFromTargetText(targetText);
+    if (targetLanguageHint && targetLanguageHint !== language) {
       if (shouldAutoOverrideLanguage()) {
-        const selectedLanguage = language;
-        language = inferredLanguage;
+        language = targetLanguageHint;
         logAttempt(attemptId, formatLanguageSelectionMessage({
-          targetLanguageHint: inferredLanguage,
+          targetLanguageHint,
           selectedLanguage,
           usedLanguage: language,
           autoOverride: true,
@@ -902,7 +976,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
         }));
       } else {
         logAttempt(attemptId, `${formatLanguageSelectionMessage({
-          targetLanguageHint: inferredLanguage,
+          targetLanguageHint,
           selectedLanguage: language,
           usedLanguage: language,
           autoOverride: false,
@@ -970,12 +1044,18 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     }
 
     phaseStartedAt = nowMs();
-    const transcriptResult = await runSttWorkerWithMpsFallback({
+    console.log(`[INFO] Selected comparison mode: ${comparisonMode}`);
+    console.log(`[INFO] Selected Whisper backend: ${whisperBackend || "none"}`);
+    console.log(`[INFO] Local Whisper backend: ${whisperBackend || "none"}`);
+    logAttempt(attemptId, `comparison mode: ${comparisonMode}`);
+    logAttempt(attemptId, `whisper backend: ${whisperBackend || "none"}`);
+    const transcriptResult = await runSttWorker({
       audioPath: scoringAudioRelativePath,
       language,
       modelName: whisperModel,
       device: whisperDevice,
       sttProvider,
+      comparisonMode,
       fastMode: true,
     });
     const sttTimingLabel = sttProvider === "both"
@@ -1163,6 +1243,12 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
     const whisperFallback = providerResults?.whisper || transcriptResult || {};
     const fallbackUsed = Boolean(whisperFallback.fallbackUsed);
     const fallbackReason = whisperFallback.fallbackReason || "";
+    const languageDebug = {
+      sentenceText: targetText,
+      targetLanguageHint,
+      selectedLanguage,
+      finalSttLanguage: language,
+    };
     const focusWord = getFocusWord(targetText, getPrimaryTranscript({ whisperStatus, whisperTranscript, appleStatus, appleTranscript, colabWhisperStatus, colabWhisperTranscript }));
     const teacherFeedback = buildTeacherFeedbackSummary(comparison, focusWord, audioSimilarity);
     const resultJson = buildCanonicalResult({
@@ -1171,6 +1257,10 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       attemptId,
       createdAt,
       language,
+      selectedLanguage,
+      targetLanguageHint,
+      finalSttLanguage: language,
+      languageDebug,
       targetText,
       whisperModel,
       whisperDevice,
@@ -1178,6 +1268,7 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       whisperRequestedDevice: whisperFallback.requestedDevice || whisperDevice,
       sttProvider,
       providerMode: sttProvider,
+      comparisonMode,
       requestedProvider,
       attemptedProviders,
       selectedScoringProvider,
@@ -1205,16 +1296,19 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       attemptId,
       requestedProvider,
       providerMode: sttProvider,
+      comparisonMode,
       attemptedProviders,
       selectedScoringProvider,
       rawTranscripts: rawProviderTranscripts,
       scoringTranscripts: providerTranscripts,
       providerResults: structuredProviderResults,
+      languageDebug,
     }, null, 2)}\n`, "utf8");
     fs.writeFileSync(runPaths.scoringResultJsonPath, `${JSON.stringify({
       attemptId,
       requestedProvider,
       providerMode: sttProvider,
+      comparisonMode,
       attemptedProviders,
       selectedScoringProvider,
       fallbackUsed,
@@ -1235,8 +1329,13 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
       attemptId,
       createdAt,
       language,
+      selectedLanguage,
+      targetLanguageHint,
+      finalSttLanguage: language,
+      languageDebug,
       sttProvider,
       providerMode: sttProvider,
+      comparisonMode,
       requestedProvider,
       attemptedProviders,
       selectedScoringProvider,
@@ -1289,16 +1388,23 @@ app.use((error, _req, res, next) => {
 
 const server = app.listen(PORT, "127.0.0.1", () => {
   ensureDirs();
+  const languageHintMismatches = validateKnownTargetLanguageHints();
+  if (languageHintMismatches.length) {
+    console.warn(`[WARN] Target sentence language hint mismatches: ${JSON.stringify(languageHintMismatches)}`);
+  }
   console.log(`Backend running at http://localhost:${PORT}`);
   console.log(`[INFO] Platform: ${getPlatformKey()} ${process.arch}`);
   console.log(`[INFO] Available STT providers: ${getSttProviderOptions().map((provider) => provider.value).join(", ")}`);
   console.log(`[INFO] Default STT provider: ${DEFAULT_STT_PROVIDER}`);
   console.log(`[INFO] Whisper model: ${process.env.WHISPER_MODEL || DEFAULT_WHISPER_MODEL}`);
-  console.log(`[INFO] Whisper device: ${normalizeWhisperDevice(process.env.WHISPER_DEVICE || (getPlatformKey() === "darwin" ? "cpu" : "auto"))}`);
+  console.log(`[INFO] Local Whisper backend: ${normalizeWhisperBackend()}`);
+  console.log(`[INFO] Recommended Whisper device: ${getRecommendedWhisperDevice()}`);
+  console.log(`[INFO] Selected Whisper device: ${normalizeWhisperDevice(process.env.WHISPER_DEVICE || getRecommendedWhisperDevice())}`);
+  console.log(`[INFO] Whisper device: ${normalizeWhisperDevice(process.env.WHISPER_DEVICE || getRecommendedWhisperDevice())}`);
   console.log(`[INFO] Max upload size: ${Number(process.env.MAX_UPLOAD_MB || 25)} MB`);
   if (process.env.WHISPER_WARMUP === "1") {
+    console.log("[STT] WHISPER_WARMUP=1; starting STT worker to warm OpenAI Whisper before the first user request.");
     startSttWorker();
-    console.log(`[STT] WHISPER_WARMUP=1; loading Whisper ${process.env.WHISPER_MODEL || DEFAULT_WHISPER_MODEL} in the worker.`);
   }
 });
 

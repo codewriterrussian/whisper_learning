@@ -8,6 +8,7 @@ const whisperModelEl = document.querySelector("#whisperModel");
 const sttProviderEl = document.querySelector("#sttProvider");
 const sttProviderHelpEl = document.querySelector("#sttProviderHelp");
 const remoteSttWarningEl = document.querySelector("#remoteSttWarning");
+const whisperDeviceFieldEl = document.querySelector("#whisperDeviceField");
 const whisperDeviceEl = document.querySelector("#whisperDevice");
 const whisperDeviceHelpEl = document.querySelector("#whisperDeviceHelp");
 const advancedSettingsEl = document.querySelector(".advanced-settings");
@@ -88,6 +89,10 @@ const tokenSortRatioEl = document.querySelector("#tokenSortRatio");
 const debugAttemptIdEl = document.querySelector("#debugAttemptId");
 const debugProviderModeEl = document.querySelector("#debugProviderMode");
 const debugProviderStatusesEl = document.querySelector("#debugProviderStatuses");
+const debugSentenceTextEl = document.querySelector("#debugSentenceText");
+const debugTargetLanguageHintEl = document.querySelector("#debugTargetLanguageHint");
+const debugSelectedLanguageEl = document.querySelector("#debugSelectedLanguage");
+const debugFinalSttLanguageEl = document.querySelector("#debugFinalSttLanguage");
 const debugResultSourceEl = document.querySelector("#debugResultSource");
 const comparisonResultEl = document.querySelector("#comparisonResult");
 
@@ -109,11 +114,15 @@ let progressStartedAt = 0;
 let progressTimer = null;
 let progressStageTimer = null;
 let progressSteps = [];
+let sttWarmupAbortController = null;
+let selectedProcessingDevice = "";
 let platformConfig = {
   platform: "unknown",
   nativeProvider: "",
   nativeProviderLabel: "Native STT",
   defaultSttProvider: "whisper",
+  whisperBackend: "openai",
+  recommendedWhisperDevice: "cpu",
   colabConfigured: false,
 };
 const MAX_ATTEMPTS = 10;
@@ -121,6 +130,8 @@ const HISTORY_STORAGE_KEY = "whisperSpeakingPracticeHistory";
 const COMPARISON_MODE_STORAGE_KEY = "whisperSpeakingPracticeComparisonMode";
 const ADVANCED_MODE_STORAGE_KEY = "whisperSpeakingPracticeAdvancedMode";
 const FIRST_LAUNCH_STORAGE_KEY = "whisperSpeakingPracticeWelcomeSeen";
+const PROCESSING_DEVICE_STORAGE_KEY = "whisperSpeakingPracticeProcessingDevice";
+const PROCESSING_DEVICE_USER_SELECTED_STORAGE_KEY = "whisperSpeakingPracticeProcessingDeviceUserSelected";
 const PLATFORM_DEFAULT_COMPARISON_MODES = {
   darwin: "whisper_apple",
   win32: "whisper",
@@ -133,7 +144,6 @@ const COMPARISON_MODE_TO_BACKEND_PROVIDER = {
   apple: "apple",
   colab_whisper: "colab_whisper",
 };
-const MPS_FALLBACK_WARNING = "Whisper retried on CPU because Apple Silicon MPS failed for this model.";
 const BACKEND_PROVIDER_TO_COMPARISON_MODE = {
   whisper: "whisper",
   both: "whisper_apple",
@@ -172,7 +182,7 @@ const CHECKING_STEP_DEFINITIONS = [
   { id: "prepare", label: "Preparing audio" },
   { id: "trim", label: "Auto-trimming silence" },
   { id: "convert", label: "Converting to 16 kHz mono WAV" },
-  { id: "whisper", label: "Running Whisper Large" },
+  { id: "whisper", label: "Running OpenAI Whisper" },
   { id: "native", label: "Running Native STT" },
   { id: "compare", label: "Comparing transcripts" },
   { id: "fluency", label: "Computing Fluency & Timing Match" },
@@ -249,7 +259,7 @@ function getNativeScore(result = {}) {
 }
 
 function getProviderMode(result = {}) {
-  return result.providerMode || result.resultJson?.providerMode || result.sttProvider || "whisper";
+  return result.comparisonMode || result.resultJson?.comparisonMode || result.providerMode || result.resultJson?.providerMode || result.sttProvider || "whisper";
 }
 
 function getProviderModeLabel(result = {}) {
@@ -257,8 +267,11 @@ function getProviderModeLabel(result = {}) {
   const nativeProvider = result.nativeProvider || platformConfig.nativeProvider || "";
   const nativeLabel = getNativeProviderLabel(nativeProvider);
 
+  if (mode === "whisper_apple") {
+    return `OpenAI Whisper + ${nativeLabel}`;
+  }
   if (mode === "both") {
-    return `Whisper + ${nativeLabel}`;
+    return `OpenAI Whisper + ${nativeLabel}`;
   }
   if (mode === "apple") {
     return "Apple STT only";
@@ -266,15 +279,33 @@ function getProviderModeLabel(result = {}) {
   if (mode === "colab_whisper") {
     return "Colab Whisper GPU";
   }
-  return "Whisper only";
+  return "OpenAI Whisper only";
 }
 
 function updateRemoteSttWarning() {
   remoteSttWarningEl.hidden = sttProviderEl.value !== "colab_whisper";
 }
 
+function getWhisperDeviceHelp(device) {
+  if (device === "auto") {
+    return platformConfig.recommendedWhisperDevice === "mps"
+      ? "Recommended: MPS for faster local Whisper."
+      : "Recommended: CPU for compatibility.";
+  }
+  if (device === "mps") {
+    return platformConfig.recommendedWhisperDevice === "mps"
+      ? "Apple Silicon GPU acceleration; may be faster but can be unstable."
+      : "MPS is only available on Apple Silicon Macs.";
+  }
+  return "Most compatible; slower but stable.";
+}
+
 function getBackendProviderForComparisonMode(mode) {
   return COMPARISON_MODE_TO_BACKEND_PROVIDER[mode] || "whisper";
+}
+
+function getWhisperModelForRequest(_comparisonMode, selectedModel) {
+  return selectedModel;
 }
 
 function getComparisonModeFromBackendProvider(provider, nativeProvider = platformConfig.nativeProvider) {
@@ -295,15 +326,46 @@ function getAvailableComparisonModes() {
   return new Set(Array.from(sttProviderEl.options).filter((option) => !option.disabled).map((option) => option.value));
 }
 
+function normalizeSavedComparisonMode(mode) {
+  if (mode === "both" || mode === "whisper+apple") {
+    return "whisper_apple";
+  }
+  return mode || "";
+}
+
+function buildComparisonModeOptions(sttProviders = [], nativeProvider = "") {
+  const providerByValue = new Map(sttProviders.map((provider) => [provider.value, provider]));
+  const colabProvider = providerByValue.get("colab_whisper");
+  const hasApple = nativeProvider === "apple" && providerByValue.has("apple");
+  const hasBoth = nativeProvider === "apple" && providerByValue.has("both");
+  const options = [
+    { value: "whisper", label: "OpenAI Whisper only", available: true },
+  ];
+
+  if (hasApple) {
+    options.push({ value: "apple", label: "Apple Speech only - experimental", available: providerByValue.get("apple")?.available !== false });
+  }
+  if (hasBoth) {
+    options.push({ value: "whisper_apple", label: "OpenAI Whisper + Apple STT", available: providerByValue.get("both")?.available !== false });
+  }
+  if (colabProvider) {
+    options.push({ value: "colab_whisper", label: "Colab Whisper GPU - experimental", available: colabProvider.available !== false });
+  }
+
+  return options;
+}
+
 function resolveComparisonMode({ platform, nativeProvider, backendDefaultProvider, savedComparisonMode }) {
   const availableModes = getAvailableComparisonModes();
   const backendDefaultMode = getComparisonModeFromBackendProvider(backendDefaultProvider, nativeProvider);
   const platformDefaultMode = getPlatformDefaultComparisonMode(platform, nativeProvider);
 
-  if (savedComparisonMode && availableModes.has(savedComparisonMode)) {
+  const normalizedSavedComparisonMode = normalizeSavedComparisonMode(savedComparisonMode);
+
+  if (normalizedSavedComparisonMode && availableModes.has(normalizedSavedComparisonMode)) {
     return {
-      mode: savedComparisonMode,
-      resolvedDefaultComparisonMode: savedComparisonMode,
+      mode: normalizedSavedComparisonMode,
+      resolvedDefaultComparisonMode: normalizedSavedComparisonMode,
       usedSavedPreference: true,
     };
   }
@@ -324,17 +386,142 @@ function resolveComparisonMode({ platform, nativeProvider, backendDefaultProvide
 function updateSttProviderHelp() {
   const selectedMode = sttProviderEl.value;
   if (selectedMode === "whisper_apple") {
-    sttProviderHelpEl.textContent = "Mode: Whisper + Apple STT. Whisper remains the main scoring provider; Apple STT is a native comparison.";
+    sttProviderHelpEl.textContent = "Compares OpenAI Whisper with Apple STT. Apple STT may return first; Whisper scoring can arrive later.";
   } else if (selectedMode === "apple") {
-    sttProviderHelpEl.textContent = "Mode: Apple STT only. This is macOS-only and experimental.";
+    sttProviderHelpEl.textContent = "Mode: Apple STT only. This is macOS-only and experimental; Whisper is not loaded.";
   } else if (selectedMode === "colab_whisper") {
     sttProviderHelpEl.textContent = "Mode: Colab Whisper GPU. Audio is sent to the configured remote Colab runtime.";
   } else {
-    sttProviderHelpEl.textContent = "Mode: Whisper only. Native comparison: skipped.";
+    sttProviderHelpEl.textContent = "OpenAI Whisper local backend only. Native comparison: skipped.";
   }
 
   if (platformConfig.colabConfigured && selectedMode !== "colab_whisper") {
     sttProviderHelpEl.textContent += " Colab Whisper is configured as an optional remote GPU provider.";
+  }
+}
+
+function updateWhisperDeviceSettings() {
+  const selectedMode = sttProviderEl.value;
+  const localWhisperMode = selectedMode === "whisper" || selectedMode === "whisper_apple";
+
+  if (!localWhisperMode) {
+    whisperDeviceFieldEl.hidden = true;
+    whisperDeviceEl.disabled = true;
+    return;
+  }
+
+  whisperDeviceFieldEl.hidden = false;
+
+  if (platformConfig.whisperBackend === "mlx") {
+    whisperDeviceEl.hidden = true;
+    whisperDeviceEl.disabled = true;
+    whisperDeviceHelpEl.textContent = "MLX uses its own Apple Silicon execution path. WHISPER_DEVICE is ignored.";
+    return;
+  }
+
+  whisperDeviceEl.hidden = false;
+  whisperDeviceEl.disabled = false;
+  whisperDeviceHelpEl.textContent = getWhisperDeviceHelp(getSelectedProcessingDevice());
+}
+
+function optionExistsAndIsEnabled(selectEl, value) {
+  return Array.from(selectEl.options).some((option) => option.value === value && !option.disabled);
+}
+
+function setSelectedProcessingDevice(device, { persist = true, source = "state update", userSelected = persist } = {}) {
+  selectedProcessingDevice = device || platformConfig.recommendedWhisperDevice || "cpu";
+  if (optionExistsAndIsEnabled(whisperDeviceEl, selectedProcessingDevice)) {
+    whisperDeviceEl.value = selectedProcessingDevice;
+  }
+  if (persist) {
+    localStorage.setItem(PROCESSING_DEVICE_STORAGE_KEY, selectedProcessingDevice);
+    localStorage.setItem(PROCESSING_DEVICE_USER_SELECTED_STORAGE_KEY, userSelected ? "1" : "0");
+  }
+  console.info("[STT settings] processing device selected", {
+    device: selectedProcessingDevice,
+    source,
+    persisted: persist,
+  });
+}
+
+function setWhisperDeviceFromPreference(recommendedDevice = "cpu") {
+  const savedDevice = localStorage.getItem(PROCESSING_DEVICE_STORAGE_KEY) || "";
+  const hasUserSelectedDevice = localStorage.getItem(PROCESSING_DEVICE_USER_SELECTED_STORAGE_KEY) === "1";
+  if (hasUserSelectedDevice && savedDevice && optionExistsAndIsEnabled(whisperDeviceEl, savedDevice)) {
+    setSelectedProcessingDevice(savedDevice, { persist: false, source: "user preference" });
+    console.info(`[INFO] frontend processing device initialized from user preference: ${savedDevice}`);
+    return;
+  }
+
+  if (savedDevice && !hasUserSelectedDevice) {
+    localStorage.removeItem(PROCESSING_DEVICE_STORAGE_KEY);
+  }
+
+  if (optionExistsAndIsEnabled(whisperDeviceEl, recommendedDevice)) {
+    setSelectedProcessingDevice(recommendedDevice, { persist: false, source: "backend recommendation" });
+    console.info(`[INFO] frontend processing device initialized from backend recommendation: ${recommendedDevice}`);
+    return;
+  }
+
+  const fallbackDevice = optionExistsAndIsEnabled(whisperDeviceEl, "cpu") ? "cpu" : "";
+  setSelectedProcessingDevice(fallbackDevice, { persist: false, source: "fallback" });
+}
+
+function getSelectedProcessingDevice() {
+  if (optionExistsAndIsEnabled(whisperDeviceEl, selectedProcessingDevice)) {
+    return selectedProcessingDevice;
+  }
+  if (optionExistsAndIsEnabled(whisperDeviceEl, whisperDeviceEl.value)) {
+    selectedProcessingDevice = whisperDeviceEl.value;
+    return selectedProcessingDevice;
+  }
+  selectedProcessingDevice = optionExistsAndIsEnabled(whisperDeviceEl, "cpu") ? "cpu" : selectedProcessingDevice;
+  return selectedProcessingDevice;
+}
+
+function shouldWarmLocalOpenAiWhisper() {
+  const selectedMode = sttProviderEl.value;
+  const localWhisperMode = selectedMode === "whisper" || selectedMode === "whisper_apple";
+  return platformConfig.whisperBackend === "openai"
+    && localWhisperMode
+    && !whisperDeviceFieldEl.hidden
+    && !whisperDeviceEl.hidden
+    && getSelectedProcessingDevice();
+}
+
+async function requestWhisperWarmup(reason = "frontend device selection") {
+  if (!shouldWarmLocalOpenAiWhisper()) {
+    return;
+  }
+
+  if (sttWarmupAbortController) {
+    sttWarmupAbortController.abort();
+  }
+
+  const requestWhisperModel = getWhisperModelForRequest(sttProviderEl.value, whisperModelEl.value);
+  const whisperDevice = getSelectedProcessingDevice();
+  sttWarmupAbortController = new AbortController();
+
+  try {
+    const response = await fetch(`${API_BASE}/api/stt-warmup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason,
+        whisperModel: requestWhisperModel,
+        whisperDevice,
+      }),
+      signal: sttWarmupAbortController.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.error || "warmup failed");
+    }
+    console.info("[STT warmup] complete", result);
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.info("[STT warmup] skipped/failed", error.message || error);
+    }
   }
 }
 
@@ -356,8 +543,8 @@ function syncSimpleControlsFromAdvanced() {
   simpleNativeComparisonEl.disabled = !nativeAvailable;
   simpleNativeComparisonEl.value = sttProviderEl.value === nativeMode && nativeAvailable ? "on" : "off";
   simpleNativeHelpEl.textContent = nativeAvailable
-    ? "On adds Apple STT as a comparison. Whisper remains the main scorer."
-    : "Native comparison is not available on this platform. Whisper only is recommended.";
+    ? "On adds Apple STT as a comparison. OpenAI Whisper remains the main scorer."
+    : "Native comparison is not available on this platform. OpenAI Whisper only is recommended.";
 }
 
 function applySimpleSettings() {
@@ -370,7 +557,9 @@ function applySimpleSettings() {
   localStorage.setItem(COMPARISON_MODE_STORAGE_KEY, sttProviderEl.value);
   updateSttProviderHelp();
   updateRemoteSttWarning();
+  updateWhisperDeviceSettings();
   syncSimpleControlsFromAdvanced();
+  requestWhisperWarmup("simple settings changed");
 }
 
 function setAdvancedMode(enabled) {
@@ -451,11 +640,13 @@ function setBenchmarkTargetForLanguage({ force = false } = {}) {
 
 async function loadPlatformSettings() {
   try {
+    const configResponse = await fetch(`${API_BASE}/api/config`);
+    const configData = configResponse.ok ? await configResponse.json() : {};
     const response = await fetch(`${API_BASE}/api/bootstrap`);
     if (!response.ok) {
       throw new Error("bootstrap unavailable");
     }
-    const data = await response.json();
+    const data = { ...configData, ...(await response.json()) };
     if (!data.ok) {
       throw new Error(data.error || "bootstrap failed");
     }
@@ -465,14 +656,15 @@ async function loadPlatformSettings() {
       nativeProvider: data.nativeProvider || "",
       nativeProviderLabel: getNativeProviderLabel(data.nativeProvider || ""),
       defaultSttProvider: data.defaultSttProvider || "whisper",
+      whisperBackend: data.defaultWhisperBackend || "openai",
+      recommendedWhisperDevice: data.recommendedWhisperDevice || data.recommendedProcessingDevice || "cpu",
       colabConfigured: Boolean(data.colabConfigured),
     };
 
     if (Array.isArray(data.sttProviders)) {
-      sttProviderEl.innerHTML = data.sttProviders
+      sttProviderEl.innerHTML = buildComparisonModeOptions(data.sttProviders, data.nativeProvider || "")
         .map((provider) => {
-          const mode = getComparisonModeFromBackendProvider(provider.value, data.nativeProvider || "");
-          return `<option value="${mode}" ${provider.available === false ? "disabled" : ""}>${provider.label}${provider.available === false ? " (not configured)" : ""}</option>`;
+          return `<option value="${provider.value}" ${provider.available === false ? "disabled" : ""}>${provider.label}${provider.available === false ? " (not configured)" : ""}</option>`;
         })
         .join("");
       const savedComparisonMode = localStorage.getItem(COMPARISON_MODE_STORAGE_KEY) || "";
@@ -494,17 +686,16 @@ async function loadPlatformSettings() {
 
     if (Array.isArray(data.whisperDevices)) {
       whisperDeviceEl.innerHTML = data.whisperDevices
-        .map((device) => `<option value="${device.value}">${device.label}</option>`)
+        .map((device) => `<option value="${device.value}" ${device.disabled ? "disabled" : ""}>${device.label}</option>`)
         .join("");
-      whisperDeviceEl.value = data.defaultWhisperDevice || "auto";
+      setWhisperDeviceFromPreference(data.recommendedWhisperDevice || data.recommendedProcessingDevice || "cpu");
     }
 
     updateSttProviderHelp();
     updateRemoteSttWarning();
+    updateWhisperDeviceSettings();
     syncSimpleControlsFromAdvanced();
-    whisperDeviceHelpEl.textContent = platformConfig.platform === "darwin"
-      ? "CPU is the stable macOS default. MPS can be faster on Apple Silicon, but Whisper may fail with PyTorch SparseMPS errors and retry on CPU."
-      : "Auto uses CUDA when available, otherwise CPU. MPS is never selected outside macOS.";
+    requestWhisperWarmup("initial device selection");
   } catch (_error) {
     const savedComparisonMode = localStorage.getItem(COMPARISON_MODE_STORAGE_KEY) || "";
     sttProviderEl.value = "whisper";
@@ -517,7 +708,9 @@ async function loadPlatformSettings() {
     });
     updateSttProviderHelp();
     updateRemoteSttWarning();
+    updateWhisperDeviceSettings();
     syncSimpleControlsFromAdvanced();
+    requestWhisperWarmup("initial device selection fallback");
   }
 }
 
@@ -2230,6 +2423,10 @@ function resetResults({ keepWordPractice = false } = {}) {
   exactRatioEl.textContent = "--";
   partialRatioEl.textContent = "--";
   tokenSortRatioEl.textContent = "--";
+  debugSentenceTextEl.textContent = "--";
+  debugTargetLanguageHintEl.textContent = "--";
+  debugSelectedLanguageEl.textContent = "--";
+  debugFinalSttLanguageEl.textContent = "--";
   comparisonResultEl.textContent = "";
   if (!keepWordPractice) {
     wordPracticeHelpEl.textContent = "Check a recording to see words you can practice one by one.";
@@ -2315,6 +2512,7 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
   const bothTranscripts = data.transcripts || null;
   const providerResults = data.providerResults || data.resultJson?.providerResults || null;
   const providerMode = data.providerMode || data.resultJson?.providerMode || data.sttProvider || "whisper";
+  const comparisonMode = data.comparisonMode || data.resultJson?.comparisonMode || providerMode;
   const nativeProvider = data.nativeProvider === "apple" || data.nativeProvider === "colab_whisper"
     ? data.nativeProvider
     : platformConfig.nativeProvider || (data.sttProvider === "apple" ? "apple" : data.sttProvider === "colab_whisper" ? "colab_whisper" : "");
@@ -2375,6 +2573,12 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
       instruction: "Record again in a quiet place and check microphone volume before scoring.",
     };
   const audioSimilarity = data.audioSimilarity || null;
+  const languageDebug = data.languageDebug || data.resultJson?.languageDebug || {
+    sentenceText: targetText,
+    targetLanguageHint: data.targetLanguageHint || data.resultJson?.targetLanguageHint || "",
+    selectedLanguage: data.selectedLanguage || language,
+    finalSttLanguage: data.finalSttLanguage || data.language || language,
+  };
   const teacherFeedback = buildTeacherFeedback({
     feedback,
     focusPractice,
@@ -2388,15 +2592,19 @@ function buildResult(data, language, attemptNumber, durationSeconds = null) {
     attemptNumber,
     checkedAt: data.createdAt || data.resultJson?.createdAt || new Date().toISOString(),
     language,
+    targetLanguageHint: data.targetLanguageHint || data.resultJson?.targetLanguageHint || languageDebug.targetLanguageHint || "",
+    selectedLanguage: data.selectedLanguage || data.resultJson?.selectedLanguage || languageDebug.selectedLanguage || language,
+    finalSttLanguage: data.finalSttLanguage || data.resultJson?.finalSttLanguage || languageDebug.finalSttLanguage || data.language || language,
+    languageDebug,
     sttProvider: data.sttProvider || "whisper",
     providerMode,
+    comparisonMode,
     requestedProvider: data.requestedProvider || data.resultJson?.requestedProvider || data.sttProvider || providerMode,
     attemptedProviders: data.attemptedProviders || data.resultJson?.attemptedProviders || [],
     selectedScoringProvider: data.selectedScoringProvider || data.resultJson?.selectedScoringProvider || "",
     providerResults,
     fallbackUsed: Boolean(data.fallbackUsed || data.resultJson?.fallbackUsed),
     fallbackReason: data.fallbackReason || data.resultJson?.fallbackReason || "",
-    whisperFallbackWarning: data.whisperFallbackWarning || (data.fallbackReason === "mps_sparse_backend_error" ? MPS_FALLBACK_WARNING : ""),
     nativeProvider,
     nativeProviderLabel: getNativeProviderLabel(nativeProvider),
     languageTip,
@@ -2464,9 +2672,8 @@ function renderResults(result) {
   providerModeResultEl.textContent = `Mode: ${getProviderModeLabel(result)}\n${getNativeComparisonLine(result)}\n${scoringProviderText}`;
 
   if (isProviderUsable(result.whisperStatus)) {
-    const fallbackNote = result.whisperFallbackWarning ? `${result.whisperFallbackWarning}\n\n` : "";
     const recoveredNote = result.whisperStatus === "ok_retry" ? "Whisper recovered after retry.\n\n" : "";
-    transcriptResultEl.textContent = `${fallbackNote}${recoveredNote}${result.bothTranscripts?.whisper || result.transcript}`;
+    transcriptResultEl.textContent = `${recoveredNote}${result.bothTranscripts?.whisper || result.transcript}`;
   } else if (result.whisperStatus === "low_confidence") {
     transcriptResultEl.textContent = `Whisper transcript was low confidence and was not scored${result.whisperNote ? `: ${result.whisperNote}` : "."}`;
   } else if (result.whisperStatus === "invalid") {
@@ -2528,6 +2735,10 @@ function renderResults(result) {
     apple: result.appleStatus || "skipped",
     colab_whisper: result.colabWhisperStatus || "skipped",
   });
+  debugSentenceTextEl.textContent = result.languageDebug?.sentenceText || result.targetText || "--";
+  debugTargetLanguageHintEl.textContent = result.languageDebug?.targetLanguageHint || result.targetLanguageHint || "--";
+  debugSelectedLanguageEl.textContent = result.languageDebug?.selectedLanguage || result.selectedLanguage || result.language || "--";
+  debugFinalSttLanguageEl.textContent = result.languageDebug?.finalSttLanguage || result.finalSttLanguage || result.language || "--";
   debugResultSourceEl.textContent = result.resultJsonPath || result.resultJson?.files?.resultJson || "--";
   exportReportBtn.disabled = false;
 }
@@ -2541,6 +2752,9 @@ function setMainControlsDisabled(disabled) {
   microphoneSelectEl.disabled = disabled;
   audioBtn.disabled = disabled;
   startBtn.disabled = disabled || recordingAttempts.length >= MAX_ATTEMPTS;
+  if (!disabled) {
+    updateWhisperDeviceSettings();
+  }
   updateCheckSelectedState();
 }
 
@@ -2604,15 +2818,21 @@ async function submitRecording() {
   setStopVisible(false);
   setCancelVisible(true);
   startCheckingProgress(sttProviderEl.value);
+  const requestWhisperModel = getWhisperModelForRequest(sttProviderEl.value, whisperModelEl.value);
+  const requestWhisperDevice = getSelectedProcessingDevice();
   const modelLabel = whisperModelEl.selectedOptions[0]?.textContent || whisperModelEl.value;
-  setStatus(`Checking Attempt ${recordingAttempts.findIndex((attempt) => attempt.id === selectedAttempt.id) + 1} with ${modelLabel} on ${whisperDeviceEl.value}...`);
+  if (requestWhisperModel === "large") {
+    setStatus("Large model selected. This can take 30+ seconds and use significant RAM.");
+  }
+  setStatus(`Checking Attempt ${recordingAttempts.findIndex((attempt) => attempt.id === selectedAttempt.id) + 1} with ${modelLabel} on ${requestWhisperDevice}...`);
 
   try {
     const formData = new FormData();
     formData.append("language", language);
     formData.append("sttProvider", getBackendProviderForComparisonMode(sttProviderEl.value));
-    formData.append("whisperModel", whisperModelEl.value);
-    formData.append("whisperDevice", whisperDeviceEl.value);
+    formData.append("comparisonMode", sttProviderEl.value);
+    formData.append("whisperModel", requestWhisperModel);
+    formData.append("whisperDevice", requestWhisperDevice);
     formData.append("targetText", targetText);
     formData.append("manualTrimmed", selectedAttempt.manualTrimmed ? "true" : "false");
     formData.append("audio", selectedAttempt.blob, "my_recording.webm");
@@ -3003,6 +3223,10 @@ exportReportBtn.addEventListener("click", () => {
     attemptId: displayedResult.attemptId || "",
     canonicalResultJsonPath: displayedResult.resultJsonPath || "",
     targetSentence: displayedResult.targetText || "",
+    targetLanguageHint: displayedResult.targetLanguageHint || "",
+    selectedLanguage: displayedResult.selectedLanguage || displayedResult.language || "",
+    finalSttLanguage: displayedResult.finalSttLanguage || displayedResult.language || "",
+    languageDebug: displayedResult.languageDebug || null,
     whisperTranscript: isProviderUsable(displayedResult.whisperStatus) ? displayedResult.bothTranscripts?.whisper || displayedResult.transcript || "" : "",
     appleTranscript: isProviderUsable(displayedResult.appleStatus) ? displayedResult.bothTranscripts?.apple || (displayedResult.sttProvider === "apple" ? displayedResult.transcript : "") || "" : "",
     colabWhisperTranscript: isProviderUsable(displayedResult.colabWhisperStatus) ? displayedResult.bothTranscripts?.colab_whisper || (displayedResult.sttProvider === "colab_whisper" ? displayedResult.transcript : "") || "" : "",
@@ -3046,10 +3270,20 @@ sttProviderEl.addEventListener("change", () => {
   localStorage.setItem(COMPARISON_MODE_STORAGE_KEY, sttProviderEl.value);
   updateRemoteSttWarning();
   updateSttProviderHelp();
+  updateWhisperDeviceSettings();
   syncSimpleControlsFromAdvanced();
+  requestWhisperWarmup("comparison mode changed");
 });
 
-whisperModelEl.addEventListener("change", syncSimpleControlsFromAdvanced);
+whisperModelEl.addEventListener("change", () => {
+  syncSimpleControlsFromAdvanced();
+  requestWhisperWarmup("check mode changed");
+});
+whisperDeviceEl.addEventListener("change", () => {
+  setSelectedProcessingDevice(whisperDeviceEl.value, { persist: true, source: "user dropdown change" });
+  updateWhisperDeviceSettings();
+  requestWhisperWarmup("processing device changed");
+});
 simpleAccuracyModeEl.addEventListener("change", applySimpleSettings);
 simpleNativeComparisonEl.addEventListener("change", applySimpleSettings);
 toggleAdvancedModeBtn.addEventListener("click", () => {
@@ -3078,3 +3312,9 @@ loadMicrophones();
 if (navigator.mediaDevices?.addEventListener) {
   navigator.mediaDevices.addEventListener("devicechange", loadMicrophones);
 }
+
+window.addEventListener("beforeunload", () => {
+  if (sttWarmupAbortController) {
+    sttWarmupAbortController.abort();
+  }
+});

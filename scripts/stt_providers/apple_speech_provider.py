@@ -6,6 +6,9 @@ import shutil
 import subprocess
 import tempfile
 import os
+import sys
+import threading
+import time
 from pathlib import Path
 
 from .base import STTProvider
@@ -27,50 +30,66 @@ import Speech
 
 let args = CommandLine.arguments
 guard args.count >= 3 else {
-    fputs("Usage: apple_speech_transcribe <audio.wav> <locale>\n", stderr)
+    fputs("Usage: apple_speech_transcribe <audio.wav> <locale> [timeout_seconds]\n", stderr)
     exit(2)
 }
 
 let audioURL = URL(fileURLWithPath: args[1])
 let localeIdentifier = args[2]
+let timeoutSeconds = args.count >= 4 ? (Double(args[3]) ?? 10.0) : 10.0
 let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier))
 guard let recognizer = recognizer, recognizer.isAvailable else {
     fputs("Apple Speech recognizer is unavailable for locale \(localeIdentifier). Check macOS Speech Recognition permissions or try another language.\n", stderr)
     exit(3)
 }
 
-let semaphore = DispatchSemaphore(value: 0)
+var authorizationStatus = SFSpeechRecognizer.authorizationStatus()
+if authorizationStatus == .denied || authorizationStatus == .restricted {
+    fputs("Apple Speech permission is not authorized. Enable Speech Recognition permission in macOS Settings.\n", stderr)
+    exit(5)
+}
+
+if authorizationStatus == .notDetermined {
+    let authorizationSemaphore = DispatchSemaphore(value: 0)
+    SFSpeechRecognizer.requestAuthorization { status in
+        authorizationStatus = status
+        authorizationSemaphore.signal()
+    }
+
+    if authorizationSemaphore.wait(timeout: .now() + 5.0) == .timedOut {
+        fputs("Apple Speech permission prompt timed out. Enable Speech Recognition permission in macOS Settings.\n", stderr)
+        exit(5)
+    }
+
+    if authorizationStatus != .authorized {
+        fputs("Apple Speech permission was not authorized. Enable Speech Recognition permission in macOS Settings.\n", stderr)
+        exit(5)
+    }
+}
+
 var isDone = false
 var transcript = ""
 var failure: String?
 var task: SFSpeechRecognitionTask?
 
-SFSpeechRecognizer.requestAuthorization { status in
-    guard status == .authorized else {
-        failure = "Apple Speech permission was not authorized. Enable Speech Recognition permission in macOS Settings."
+let request = SFSpeechURLRecognitionRequest(url: audioURL)
+request.shouldReportPartialResults = false
+
+task = recognizer.recognitionTask(with: request) { result, error in
+    if let result = result {
+        transcript = result.bestTranscription.formattedString
+    }
+    if let error = error {
+        failure = error.localizedDescription
         isDone = true
         return
     }
-
-    let request = SFSpeechURLRecognitionRequest(url: audioURL)
-    request.shouldReportPartialResults = false
-
-    task = recognizer.recognitionTask(with: request) { result, error in
-        if let result = result {
-            transcript = result.bestTranscription.formattedString
-        }
-        if let error = error {
-            failure = error.localizedDescription
-            isDone = true
-            return
-        }
-        if result?.isFinal == true {
-            isDone = true
-        }
+    if result?.isFinal == true {
+        isDone = true
     }
 }
 
-let deadline = Date().addingTimeInterval(45)
+let deadline = Date().addingTimeInterval(timeoutSeconds)
 while !isDone && Date() < deadline {
     RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
 }
@@ -116,6 +135,13 @@ HELPER_RESOURCES = HELPER_CONTENTS / "Resources"
 HELPER_SOURCE = HELPER_DIR / "apple_speech_transcribe.swift"
 HELPER_PLIST = HELPER_CONTENTS / "Info.plist"
 HELPER_BINARY = HELPER_MACOS / "apple_speech_transcribe"
+DEFAULT_HELPER_TIMEOUT_SECONDS = 40.0
+_HELPER_BUILD_LOCK = threading.Lock()
+_HELPER_READY = False
+
+
+def log_timing(message: str) -> None:
+    print(f"[timing] {message}", file=sys.stderr)
 
 
 def format_subprocess_error(error: subprocess.CalledProcessError) -> str:
@@ -185,17 +211,60 @@ def build_helper_app(helper_env: dict[str, str]) -> Path:
     return HELPER_BINARY
 
 
+def helper_app_is_current() -> bool:
+    return (
+        HELPER_BINARY.exists()
+        and HELPER_SOURCE.exists()
+        and HELPER_PLIST.exists()
+        and HELPER_SOURCE.read_text(encoding="utf-8") == SWIFT_HELPER
+        and HELPER_PLIST.read_text(encoding="utf-8") == INFO_PLIST
+    )
+
+
+def ensure_helper_app(helper_env: dict[str, str] | None = None) -> Path:
+    global _HELPER_READY
+    helper_env = helper_env or {
+        **os.environ,
+        "CLANG_MODULE_CACHE_PATH": str(HELPER_DIR / "clang_module_cache"),
+    }
+
+    with _HELPER_BUILD_LOCK:
+        if _HELPER_READY and helper_app_is_current():
+            print("[INFO] Apple STT helper cache hit", file=sys.stderr)
+            return HELPER_BINARY
+
+        if helper_app_is_current():
+            _HELPER_READY = True
+            print("[INFO] Apple STT helper cache hit", file=sys.stderr)
+            return HELPER_BINARY
+
+        print("[INFO] Apple STT helper cache miss; building", file=sys.stderr)
+        binary_path = build_helper_app(helper_env)
+        _HELPER_READY = True
+        return binary_path
+
+
+def prebuild_helper() -> Path:
+    if platform.system() != "Darwin":
+        raise RuntimeError("Apple Speech STT is macOS-only. Use --stt-provider whisper on this system.")
+    if not shutil.which("swiftc"):
+        raise RuntimeError("Apple Speech STT requires the macOS Swift compiler (`swiftc`) to be available.")
+    return ensure_helper_app()
+
+
 class AppleSpeechProvider(STTProvider):
     """Experimental macOS Apple Speech provider."""
 
-    def __init__(self, language: str | None = None) -> None:
+    def __init__(self, language: str | None = None, timeout_seconds: float | None = None) -> None:
         self.language = language
+        self.timeout_seconds = float(timeout_seconds or os.environ.get("APPLE_STT_TIMEOUT") or DEFAULT_HELPER_TIMEOUT_SECONDS)
 
     @property
     def locale(self) -> str:
         return APPLE_LOCALES.get(self.language or "", "en-US")
 
     def transcribe(self, audio_path: str) -> str:
+        request_started = time.perf_counter()
         if platform.system() != "Darwin":
             raise RuntimeError("Apple Speech STT is macOS-only. Use --stt-provider whisper on this system.")
 
@@ -209,18 +278,25 @@ class AppleSpeechProvider(STTProvider):
         if not shutil.which("ffmpeg"):
             raise RuntimeError("Apple Speech STT requires ffmpeg to convert audio to wav.")
 
-        with tempfile.TemporaryDirectory(prefix="apple_speech_stt_") as temp_dir:
-            temp_path = Path(temp_dir)
-            wav_path = temp_path / "input.wav"
-            helper_env = {
-                **os.environ,
-                "CLANG_MODULE_CACHE_PATH": str(HELPER_DIR / "clang_module_cache"),
-                "TMPDIR": str(temp_path),
-            }
+        temp_dir_context = tempfile.TemporaryDirectory(prefix="apple_speech_stt_")
+        temp_dir = temp_dir_context.__enter__()
+        temp_path = Path(temp_dir)
+        wav_path = temp_path / "input.wav"
+        helper_env = {
+            **os.environ,
+            "CLANG_MODULE_CACHE_PATH": str(HELPER_DIR / "clang_module_cache"),
+            "TMPDIR": str(temp_path),
+        }
 
+        try:
             try:
-                binary_path = build_helper_app(helper_env)
+                step_started = time.perf_counter()
+                log_timing("Apple STT helper cache/build start")
+                binary_path = ensure_helper_app(helper_env)
+                log_timing(f"Apple STT helper cache/build end: {round((time.perf_counter() - step_started) * 1000)}ms")
 
+                step_started = time.perf_counter()
+                log_timing("Apple STT audio conversion start")
                 subprocess.run(
                     ["ffmpeg", "-y", "-i", str(path), "-ar", "16000", "-ac", "1", str(wav_path)],
                     check=True,
@@ -228,16 +304,20 @@ class AppleSpeechProvider(STTProvider):
                     stderr=subprocess.PIPE,
                     text=True,
                 )
+                log_timing(f"Apple STT audio conversion end: {round((time.perf_counter() - step_started) * 1000)}ms")
 
+                step_started = time.perf_counter()
+                log_timing("Apple STT helper subprocess start")
                 result = subprocess.run(
-                    [str(binary_path), str(wav_path), self.locale],
+                    [str(binary_path), str(wav_path), self.locale, str(self.timeout_seconds)],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    timeout=40,
+                    timeout=self.timeout_seconds + 2,
                     env=helper_env,
                 )
+                log_timing(f"Apple STT helper subprocess end: {round((time.perf_counter() - step_started) * 1000)}ms")
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError(
                     "Apple Speech timed out. Enable Speech Recognition permission for Terminal or your IDE in "
@@ -251,5 +331,10 @@ class AppleSpeechProvider(STTProvider):
                         "or your IDE in macOS System Settings, then try again."
                     )
                 raise RuntimeError(detail) from error
-
-        return result.stdout.strip()
+            return result.stdout.strip()
+        finally:
+            step_started = time.perf_counter()
+            log_timing("Apple STT subprocess/helper cleanup start")
+            temp_dir_context.__exit__(None, None, None)
+            log_timing(f"Apple STT subprocess/helper cleanup end: {round((time.perf_counter() - step_started) * 1000)}ms")
+            log_timing(f"Apple STT total provider cleanup-inclusive time: {round((time.perf_counter() - request_started) * 1000)}ms")
