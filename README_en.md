@@ -209,7 +209,15 @@ MPS is never selected outside macOS. Native STT failures are reported with statu
 
 ## Apple STT
 
-Apple STT is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It may require Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, VS Code, or PyCharm.
+Apple STT is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It requires Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, PyCharm, VS Code, or the command launcher.
+
+Open **System Settings -> Privacy & Security -> Speech Recognition**, enable the backend-launching app, then restart `run_mac.command`. If Apple STT fails, OpenAI Whisper still works and scores pronunciation. In Whisper + Apple STT mode, Apple STT is optional diagnostic comparison while Whisper remains the main scoring provider.
+
+Optional permission smoke check:
+
+```bash
+./scripts/check_apple_stt.sh
+```
 
 ```bash
 python scripts/stt_model.py recordings/my_recording.wav \
@@ -399,8 +407,10 @@ MPS is unavailable:
 
 Apple Speech permission fails:
 
-- Enable Speech Recognition permission for the app that launched the backend, not just the browser.
-- Restart the backend after changing macOS permissions.
+- Open System Settings -> Privacy & Security -> Speech Recognition.
+- Enable the app that launched the backend: Terminal, iTerm, PyCharm, VS Code, or the command launcher.
+- Restart `run_mac.command` after changing macOS permissions.
+- Whisper still works if Apple STT is blocked.
 
 Microphone permission fails:
 

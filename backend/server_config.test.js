@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const serverSource = readFileSync(new URL("./server.js", import.meta.url), "utf8");
+const doctorSource = readFileSync(new URL("../scripts/doctor.js", import.meta.url), "utf8");
 
 test("server defaults OpenAI Whisper to large-v3-turbo", () => {
   assert.match(serverSource, /const DEFAULT_WHISPER_MODEL = "large-v3-turbo"/);
@@ -26,4 +27,12 @@ test("server exposes config and warmup endpoints", () => {
   assert.match(serverSource, /appleSttSupported/);
   assert.match(serverSource, /app\.post\("\/api\/stt-warmup"/);
   assert.match(serverSource, /action: "warmup"/);
+});
+
+test("doctor includes Apple Speech permission guidance", () => {
+  assert.match(doctorSource, /Apple Speech helper can be built/);
+  assert.match(doctorSource, /Speech Recognition/);
+  assert.match(doctorSource, /Terminal, iTerm, PyCharm, or VS Code/);
+  assert.match(doctorSource, /scripts\/check_apple_stt\.sh/);
+  assert.match(doctorSource, /Whisper still works if Apple STT permission is missing/);
 });

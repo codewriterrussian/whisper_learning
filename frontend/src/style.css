@@ -813,6 +813,15 @@ audio:not([hidden]) + .audio-empty {
   white-space: pre-wrap;
 }
 
+.result-card .permission-warning {
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 760;
+}
+
 .result-label {
   display: block;
   color: #64748b;

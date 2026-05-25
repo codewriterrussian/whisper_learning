@@ -323,6 +323,18 @@ function getProviderScore(comparison, providerName) {
   return section ? getMetric(section, "Exact-style ratio") : getMetric(comparison, "Exact-style ratio");
 }
 
+function isApplePermissionOrHelperAbort(message) {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("apple speech helper was aborted by macos") ||
+    text.includes("speech recognition permission") ||
+    text.includes("permission was not authorized") ||
+    text.includes("permission is not authorized") ||
+    text.includes("not authorized") ||
+    text.includes("rejected the helper identity")
+  );
+}
+
 function countWords(text) {
   return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).length;
 }
@@ -1108,6 +1120,9 @@ app.post("/api/practice", upload.single("audio"), async (req, res) => {
 
     if (whisperStatus === "ok" || whisperStatus === "ok_retry") {
       transcript = whisperTranscript;
+      if (isApplePermissionOrHelperAbort(appleNote)) {
+        console.warn("[WARN] Apple STT was blocked by macOS Speech Recognition permission/helper identity. OpenAI Whisper scoring succeeded and remains the primary result.");
+      }
     } else if (appleStatus === "ok" || appleStatus === "ok_retry") {
       transcript = appleTranscript;
     } else if (colabWhisperStatus === "ok" || colabWhisperStatus === "ok_retry") {

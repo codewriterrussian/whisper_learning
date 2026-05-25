@@ -68,6 +68,7 @@ const teacherFeedbackResultEl = document.querySelector("#teacherFeedbackResult")
 const targetResultEl = document.querySelector("#targetResult");
 const transcriptResultEl = document.querySelector("#transcriptResult");
 const appleTranscriptCardEl = document.querySelector("#appleTranscriptCard");
+const applePermissionWarningEl = document.querySelector("#applePermissionWarning");
 const appleTranscriptResultEl = document.querySelector("#appleTranscriptResult");
 const nativeTranscriptLabelEl = document.querySelector("#nativeTranscriptLabel");
 const wordComparisonResultEl = document.querySelector("#wordComparisonResult");
@@ -284,6 +285,16 @@ function getProviderModeLabel(result = {}) {
 
 function updateRemoteSttWarning() {
   remoteSttWarningEl.hidden = sttProviderEl.value !== "colab_whisper";
+}
+
+function isAppleSpeechPermissionIssue(note = "") {
+  const text = String(note || "").toLowerCase();
+  return text.includes("apple speech helper was aborted by macos")
+    || text.includes("speech recognition permission")
+    || text.includes("permission was not authorized")
+    || text.includes("permission is not authorized")
+    || text.includes("not authorized")
+    || text.includes("rejected the helper identity");
 }
 
 function getWhisperDeviceHelp(device) {
@@ -2405,6 +2416,7 @@ function resetResults({ keepWordPractice = false } = {}) {
   targetResultEl.textContent = "";
   transcriptResultEl.textContent = "";
   appleTranscriptCardEl.hidden = true;
+  applePermissionWarningEl.hidden = true;
   nativeTranscriptLabelEl.textContent = "Native STT transcript";
   appleTranscriptResultEl.textContent = "";
   wordComparisonResultEl.textContent = "";
@@ -2688,8 +2700,12 @@ function renderResults(result) {
   const nativeLabel = getNativeProviderLabel(nativeProvider);
   const nativeStatus = getNativeStatus(result);
   const nativeNote = getNativeNote(result);
+  const showApplePermissionWarning = nativeProvider === "apple"
+    && isAppleSpeechPermissionIssue(nativeNote)
+    && isProviderUsable(result.whisperStatus);
   if (result.bothTranscripts || result.sttProvider === "apple" || result.sttProvider === "colab_whisper") {
     appleTranscriptCardEl.hidden = false;
+    applePermissionWarningEl.hidden = !showApplePermissionWarning;
     nativeTranscriptLabelEl.textContent = `${nativeLabel} STT transcript`;
     if (isProviderUsable(nativeStatus)) {
       appleTranscriptResultEl.textContent = getNativeTranscript(result) || `No ${nativeLabel} transcript returned.`;
@@ -2704,6 +2720,7 @@ function renderResults(result) {
     }
   } else {
     appleTranscriptCardEl.hidden = true;
+    applePermissionWarningEl.hidden = true;
     appleTranscriptResultEl.textContent = "";
   }
 

@@ -26,6 +26,21 @@ def log_timing(message: str) -> None:
     print(f"[timing] {message}", file=sys.stderr)
 
 
+def is_apple_permission_or_helper_abort(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(
+        marker in text
+        for marker in (
+            "apple speech helper was aborted by macos",
+            "speech recognition permission",
+            "permission was not authorized",
+            "permission is not authorized",
+            "not authorized",
+            "rejected the helper identity",
+        )
+    )
+
+
 def get_platform_key(system_name: Optional[str] = None) -> str:
     system = system_name or platform.system()
     if system == "Darwin":
@@ -187,6 +202,9 @@ def transcribe_both(
         except Exception as error:  # Apple Speech is optional and experimental.
             provider_result["status"] = "failed"
             provider_result["error"] = str(error)
+            if native_provider == "apple" and is_apple_permission_or_helper_abort(str(error)):
+                print(f"[WARN] Apple STT macOS permission/helper abort: {error}", file=sys.stderr)
+                print("[WARN] Apple STT failed; continuing with OpenAI Whisper result when available.", file=sys.stderr)
         elapsed_ms = round((time.perf_counter() - started) * 1000)
         log_timing(f"{get_native_provider_label(native_provider)} STT end: {elapsed_ms}ms")
         return native_provider, provider_result, elapsed_ms

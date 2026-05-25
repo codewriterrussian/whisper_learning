@@ -232,8 +232,19 @@ function checkWritableDirs() {
 
 function checkPlatformStt() {
   if (process.platform === "darwin") {
-    const swift = commandExists("swift");
-    return status(swift.ok, swift.ok ? "Apple Speech helper can be built with Swift." : "Swift was not found for Apple Speech.", "Install Xcode Command Line Tools, or use Whisper only.");
+    const swift = commandExists("swiftc");
+    const guidance = [
+      "Apple Speech helper can be built.",
+      "If Apple STT returns empty or aborted, enable Speech Recognition for the app that launches the backend: Terminal, iTerm, PyCharm, or VS Code.",
+      "System Settings -> Privacy & Security -> Speech Recognition.",
+      "Optional check: ./scripts/check_apple_stt.sh",
+      "Whisper still works if Apple STT permission is missing.",
+    ].join(" ");
+    return status(
+      swift.ok,
+      swift.ok ? guidance : "Swift compiler was not found for Apple Speech. Whisper still works without Apple STT.",
+      "Install Xcode Command Line Tools for Apple STT, or use Whisper only.",
+    );
   }
   if (process.platform === "win32") {
     return status(true, "Windows Speech is not used by this release. Whisper remains the recommended provider.");

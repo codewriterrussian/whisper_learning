@@ -400,6 +400,30 @@ class STTProviderTests(unittest.TestCase):
         self.assertEqual(result["apple"]["status"], "failed")
         self.assertIn("Apple unavailable", result["apple"]["error"])
 
+    def test_both_mode_keeps_whisper_when_apple_helper_aborts(self) -> None:
+        abort_message = (
+            "Apple Speech helper was aborted by macOS. This usually means Speech Recognition permission "
+            "is missing for the backend-launching app, or macOS rejected the helper identity."
+        )
+
+        def fake_get_provider(provider_name: str, **_kwargs):
+            if provider_name == "whisper":
+                return FakeProvider("whisper transcript")
+            if provider_name == "apple":
+                return FakeProvider(error=RuntimeError(abort_message))
+            raise AssertionError(provider_name)
+
+        with (
+            patch("scripts.stt_model.get_provider", side_effect=fake_get_provider),
+            patch("scripts.stt_model.get_native_provider_name", return_value="apple"),
+        ):
+            result = transcribe_both("recordings/my_recording.wav", preprocess=False)
+
+        self.assertEqual(result["whisper"]["status"], "ok")
+        self.assertEqual(result["whisper"]["transcript"], "whisper transcript")
+        self.assertEqual(result["apple"]["status"], "failed")
+        self.assertIn("aborted by macOS", result["apple"]["error"])
+
     def test_both_mode_does_not_wait_indefinitely_for_slow_apple(self) -> None:
         class SlowAppleProvider(FakeProvider):
             def transcribe(self, _audio_path: str) -> str:

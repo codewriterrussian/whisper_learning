@@ -68,6 +68,15 @@ test("result UI explains deterministic provider scoring", () => {
   assert.match(mainJs, /low confidence and was not scored/);
 });
 
+test("Apple STT permission abort is visible and non-fatal in result UI", () => {
+  assert.match(html, /id="applePermissionWarning"/);
+  assert.match(html, /Whisper succeeded, but Apple STT was blocked by macOS Speech Recognition permission/);
+  assert.match(mainJs, /function isAppleSpeechPermissionIssue/);
+  assert.match(mainJs, /apple speech helper was aborted by macos/);
+  assert.match(mainJs, /isProviderUsable\(result\.whisperStatus\)/);
+  assert.match(mainJs, /applePermissionWarningEl\.hidden = !showApplePermissionWarning/);
+});
+
 test("learner UI hides developer details and blocks mismatched attempt comparisons", () => {
   assert.match(html, /Advanced \/ Developer Details/);
   assert.match(html, /id="stickySelectionStatus"/);

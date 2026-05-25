@@ -183,6 +183,10 @@ Windows 安裝 Python 時請注意：
 
 macOS 支援時可以使用 Whisper + Apple STT comparison。Apple STT 可能先回傳，Whisper 的分數可能稍後才出現。
 
+Apple STT 需要 macOS Speech Recognition 權限。請到 **System Settings -> Privacy & Security -> Speech Recognition**，啟用用來啟動 backend 的 App，例如 Terminal、iTerm、PyCharm、VS Code，或 command launcher。改完權限後，請重新啟動 `run_mac.command`。
+
+如果 Apple STT 失敗或被 macOS 阻擋，Whisper 仍然可以正常評分。在 Whisper + Apple STT 模式中，Apple STT 是選用的診斷比較來源，Whisper 仍是主要評分 provider。
+
 ---
 
 ## 麥克風權限
@@ -264,6 +268,7 @@ System Check 會告訴你 App 是否具備需要的工具。
 | Browser asks for microphone access | App 需要權限才能錄音。 | 點擊 Allow。 |
 | First check is very slow | 語音模型正在載入或下載。 | 等待完成；之後通常會比較快。 |
 | Apple STT is skipped | Apple Speech 在 macOS 上是選用功能。 | 可以忽略，使用 Whisper 即可。 |
+| Apple STT 被 macOS 阻擋 | 啟動 backend 的 App 缺少 Speech Recognition 權限。 | 到 System Settings -> Privacy & Security -> Speech Recognition 啟用 Terminal、iTerm、PyCharm、VS Code 或 command launcher，然後重開 `run_mac.command`。 |
 | Native comparison is skipped on Windows | Windows 預設使用 Whisper。 | 這是正常現象。 |
 | App opens command windows | App 正在你的電腦本機執行。 | 使用 App 時請保持它們開著。 |
 | Browser does not open | App 可能還在啟動中。 | 手動打開 `http://localhost:6173`。 |

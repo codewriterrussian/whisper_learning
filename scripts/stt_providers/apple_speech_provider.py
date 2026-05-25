@@ -169,6 +169,21 @@ def format_subprocess_error(error: subprocess.CalledProcessError) -> str:
     return detail
 
 
+def is_permission_or_helper_abort(message: str) -> bool:
+    text = message.lower()
+    return any(
+        marker in text
+        for marker in (
+            "aborted by macos",
+            "speech recognition permission",
+            "permission was not authorized",
+            "permission is not authorized",
+            "not authorized",
+            "rejected the helper identity",
+        )
+    )
+
+
 def build_helper_app(helper_env: dict[str, str]) -> Path:
     HELPER_MACOS.mkdir(parents=True, exist_ok=True)
     HELPER_RESOURCES.mkdir(parents=True, exist_ok=True)
@@ -330,6 +345,9 @@ class AppleSpeechProvider(STTProvider):
                         "Apple Speech transcription timed out. Enable Speech Recognition permission for Terminal "
                         "or your IDE in macOS System Settings, then try again."
                     )
+                if is_permission_or_helper_abort(detail):
+                    print(f"[WARN] Apple STT macOS permission/helper abort: {detail}", file=sys.stderr)
+                    print("[WARN] Apple STT failed, but OpenAI Whisper scoring can continue in comparison mode.", file=sys.stderr)
                 raise RuntimeError(detail) from error
             return result.stdout.strip()
         finally:
