@@ -78,6 +78,21 @@ run_mac.command
 
 4. 瀏覽器應該會自動開啟 App。
 
+建議初學者使用這個方式啟動：
+
+```text
+雙擊 setup_mac.command
+雙擊 run_mac.command
+```
+
+不建議初學者從 Visual Studio Code、PyCharm 或其他 IDE 的 terminal 啟動，除非你知道 macOS 權限如何分配。macOS 的 Speech Recognition 權限是依照「啟動 backend 的 App」分開管理的。
+
+例如：
+
+- 從雙擊 `run_mac.command` 或 Terminal 啟動時，通常需要允許 Terminal 的 Speech Recognition 權限。
+- 從 Visual Studio Code terminal 啟動時，需要允許 Visual Studio Code 的 Speech Recognition 權限。
+- 從 PyCharm terminal 啟動時，需要允許 PyCharm 的 Speech Recognition 權限。
+
 如果 macOS 擋住 `.command` 檔案，可以右鍵點擊檔案，選擇「打開」，再確認一次「打開」。
 
 ### Windows
@@ -397,16 +412,30 @@ WHISPER_WARMUP=1 ./run_web_app.sh
 
 ## 13. Apple STT
 
-Apple STT 只支援 macOS，而且目前屬於實驗性功能。
+Apple STT 只支援 macOS，而且目前屬於選用、實驗性的比較功能。Whisper 仍然是主要評分 provider；如果 Apple STT 被 macOS 權限阻擋，只要 Whisper 成功，發音評分仍會正常顯示。
 
-它透過一個由 Python 啟動的小型 Swift helper，使用 Apple 原生 Speech framework。
+Apple STT 透過一個由 Python 啟動的小型 Swift helper，使用 Apple 原生 Speech framework。它需要「啟動 backend 的 App」具備 macOS Speech Recognition 權限，這和瀏覽器的 microphone permission 是不同的權限。
 
-可能需要對啟動 backend 的 App 開啟「語音辨識」權限，例如：
+權限位置：
 
-- Terminal
-- iTerm
-- VS Code
-- PyCharm
+```text
+System Settings → Privacy & Security → Speech Recognition
+```
+
+請依照你啟動 backend 的方式開啟對應 App 的權限：
+
+- 雙擊 `run_mac.command`，或從 Terminal 啟動：通常需要允許 Terminal。
+- 從 Visual Studio Code terminal 啟動：需要允許 Visual Studio Code。
+- 從 PyCharm terminal 啟動：需要允許 PyCharm。
+- 從 iTerm 啟動：需要允許 iTerm。
+
+修改權限後，請重新啟動 `run_mac.command`。
+
+可選的 Apple STT 權限檢查：
+
+```bash
+./scripts/check_apple_stt.sh
+```
 
 CLI 範例：
 
@@ -605,6 +634,32 @@ results/
 | NVIDIA CUDA | Windows / Linux 若 PyTorch CUDA build 支援，可加速 Whisper |
 | AMD GPU on Windows | 此 repo 通常會 fallback 到 CPU |
 
+### 範例效能 benchmark
+
+以下數字來自一台 Apple Silicon macOS 測試機，僅作為範例，不是保證效能。
+
+- Backend：OpenAI Whisper
+- Model：`large-v3-turbo`
+- MPS 模式使用 Apple Silicon GPU acceleration。
+- 錄音是短句發音練習錄音。
+- 實際速度會受到硬體、macOS、Python/PyTorch 版本、音訊長度、選擇的語言、模型 cache 狀態，以及 Apple STT 權限是否啟用影響。
+- 這些不是保證效能數字。
+
+| Mode | Language | Whisper time | Apple STT | Provider setup/model load | Total request |
+| --- | --- | ---: | ---: | ---: | ---: |
+| MPS | Vietnamese | 5692 ms | 1138 ms | 1274 ms | 8095 ms |
+| MPS warmed | Polish | 4124 ms | 4177 ms | 1 ms | 5213 ms |
+| CPU after switch | Polish | 26721 ms | 4242 ms | 12040 ms | 39936 ms |
+| CPU warmed | Vietnamese | 28485 ms | 957 ms | 1 ms | 29602 ms |
+
+解讀：
+
+- 在這台測試機上，MPS 對 `large-v3-turbo` 明顯比 CPU 快。
+- 已 warm up 的 request 大多可以避開模型載入成本。
+- 切換 device 可能造成一次性的大量模型載入時間。
+- 在 Whisper + Apple STT 模式中，整體 provider 時間通常受較慢的 provider 限制。
+- Apple STT 可以很快，但需要 macOS Speech Recognition 權限。
+
 ---
 
 ## 18. 練習功能
@@ -725,16 +780,30 @@ cpu
 
 ### Apple Speech 權限失敗
 
-請啟用「啟動 backend 的 App」的 Speech Recognition 權限，而不是只看瀏覽器。
+Apple Speech 權限失敗不代表安裝壞掉。如果 Whisper 可以正常辨識與評分，Whisper 仍會是主要評分 provider，Apple STT 只是選用的診斷比較來源。
 
-可能需要設定權限的 App：
+請注意：瀏覽器 microphone permission 不等於 macOS Speech Recognition permission。Apple STT 需要啟用「啟動 backend 的 App」的 Speech Recognition 權限。
 
-- Terminal
-- iTerm
-- VS Code
-- PyCharm
+權限位置：
 
-修改 macOS 權限後，請重新啟動 backend。
+```text
+System Settings → Privacy & Security → Speech Recognition
+```
+
+依照啟動方式選擇要允許的 App：
+
+- 雙擊 `run_mac.command`，或從 Terminal 啟動：通常需要允許 Terminal。
+- 從 Visual Studio Code terminal 啟動：需要允許 Visual Studio Code。
+- 從 PyCharm terminal 啟動：需要允許 PyCharm。
+- 從 iTerm 啟動：需要允許 iTerm。
+
+修改 macOS 權限後，請重新啟動 `run_mac.command`。
+
+可選檢查：
+
+```bash
+./scripts/check_apple_stt.sh
+```
 
 ---
 

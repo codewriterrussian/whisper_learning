@@ -40,6 +40,7 @@
 - [x] Document Whisper model download behavior and expected disk usage.
   - Status: Done. README documents first-use downloads and approximate model sizes.
 - [x] Document Apple Silicon/MPS requirements and CPU fallback behavior.
+  - Status: Done. Apple Silicon macOS defaults OpenAI Whisper to MPS; Intel macOS, Windows, and Linux default to CPU.
 - [x] Add troubleshooting for common install errors.
   - Status: Done. README includes troubleshooting for model download, MPS, Apple permissions, microphone permissions, invalid STT output, and backend URL issues.
 
@@ -162,6 +163,7 @@
 - [x] If source-based on Windows, provide `run_web_app.ps1`.
   - Status: Done.
 - [x] If packaging for macOS, document Apple Speech permissions.
+  - Status: Done. Docs explain that macOS Speech Recognition permission is per backend-launching app: Terminal for double-click/Terminal launch, Visual Studio Code for Visual Studio Code terminal, PyCharm for PyCharm terminal, and iTerm for iTerm launch.
 - [x] If Docker is supported, document that Apple STT and MPS may not work inside Docker.
   - Status: Done. README states Docker is not currently supported and Apple Speech/MPS should not be expected there.
 - [x] Add version number and release notes.
@@ -179,7 +181,7 @@
   - [x] Whisper model download is slow.
   - [x] MPS is unavailable.
   - [x] Apple STT permission fails.
-    - Status: Covered in README and provider error messages.
+    - Status: Covered in README and provider error messages. Apple STT permission failure is non-fatal; Whisper scoring continues and the UI shows a warning.
   - [x] Microphone permission fails.
     - Status: Covered in README troubleshooting.
   - [x] STT returns punctuation or empty transcript.
@@ -211,6 +213,8 @@
   - Status: Done for README and launch scripts.
 - [x] Ensure scripts are executable where needed.
   - Status: Done for shell entrypoints checked: `run_web_app.sh`, `scripts/transcribe.sh`, `scripts/make_model_audio.sh`, and `scripts/practice_once.sh`.
+- [x] Keep generated/runtime files out of version control.
+  - Status: Done. Do not commit `frontend/dist`, `runs`, `recordings`, `transcripts`, `results`, `model_audio`, `generated_reports`, `__pycache__`, `.pytest_cache`, `node_modules`, or `.apple_speech_helper`.
 - [x] Ensure naming and spelling are clean in public-facing docs.
   - Status: Done for README/release docs in this pass.
 - [x] Add license file.

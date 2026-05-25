@@ -47,6 +47,8 @@ App 會提供：
 4. 雙擊 `run_mac.command`。
 5. 瀏覽器應該會自動打開 App。
 
+初學者建議使用這個雙擊流程。從 Visual Studio Code terminal 或 PyCharm terminal 啟動時，macOS Speech Recognition 權限可能是另一個 App 的權限。
+
 ---
 
 ### Windows
@@ -179,11 +181,13 @@ Windows 安裝 Python 時請注意：
 
 預設本機 Whisper 模型是 `large-v3-turbo`。Apple Silicon Mac 預設使用 MPS；Intel Mac、Windows、Linux 預設使用 CPU。
 
+Apple Silicon Mac 通常會比 CPU 模式快很多，但第一次載入模型可能比較久。
+
 第一次啟動或第一次檢查錄音可能比較慢，因為 Whisper 正在下載、載入或 warmup。之後的檢查通常會比較快。
 
 macOS 支援時可以使用 Whisper + Apple STT comparison。Apple STT 可能先回傳，Whisper 的分數可能稍後才出現。
 
-Apple STT 需要 macOS Speech Recognition 權限。請到 **System Settings -> Privacy & Security -> Speech Recognition**，啟用用來啟動 backend 的 App，例如 Terminal、iTerm、PyCharm、VS Code，或 command launcher。改完權限後，請重新啟動 `run_mac.command`。
+Apple STT 需要 macOS Speech Recognition 權限。請到 **System Settings -> Privacy & Security -> Speech Recognition**，啟用用來啟動 backend 的 App。雙擊 `run_mac.command` 或從 Terminal 啟動時，通常需要 Terminal 權限；從 Visual Studio Code terminal 啟動時，需要 Visual Studio Code 權限；從 PyCharm terminal 啟動時，需要 PyCharm 權限。改完權限後，請重新啟動 `run_mac.command`。
 
 如果 Apple STT 失敗或被 macOS 阻擋，Whisper 仍然可以正常評分。在 Whisper + Apple STT 模式中，Apple STT 是選用的診斷比較來源，Whisper 仍是主要評分 provider。
 
@@ -268,7 +272,7 @@ System Check 會告訴你 App 是否具備需要的工具。
 | Browser asks for microphone access | App 需要權限才能錄音。 | 點擊 Allow。 |
 | First check is very slow | 語音模型正在載入或下載。 | 等待完成；之後通常會比較快。 |
 | Apple STT is skipped | Apple Speech 在 macOS 上是選用功能。 | 可以忽略，使用 Whisper 即可。 |
-| Apple STT 被 macOS 阻擋 | 啟動 backend 的 App 缺少 Speech Recognition 權限。 | 到 System Settings -> Privacy & Security -> Speech Recognition 啟用 Terminal、iTerm、PyCharm、VS Code 或 command launcher，然後重開 `run_mac.command`。 |
+| Apple STT 被 macOS 阻擋 | 啟動 backend 的 App 缺少 Speech Recognition 權限。瀏覽器 microphone permission 是不同的權限。 | 到 System Settings -> Privacy & Security -> Speech Recognition 啟用 Terminal、Visual Studio Code、PyCharm、iTerm 或 command launcher，然後重開 `run_mac.command`。 |
 | Native comparison is skipped on Windows | Windows 預設使用 Whisper。 | 這是正常現象。 |
 | App opens command windows | App 正在你的電腦本機執行。 | 使用 App 時請保持它們開著。 |
 | Browser does not open | App 可能還在啟動中。 | 手動打開 `http://localhost:6173`。 |

@@ -35,6 +35,8 @@ By default, your recording is checked on your own computer.
 4. Double-click `run_mac.command`.
 5. Your browser should open the app.
 
+Beginners should use this double-click path. Starting the app from a Visual Studio Code or PyCharm terminal can require different macOS Speech Recognition permission.
+
 ### Windows
 
 1. Open this app folder.
@@ -149,11 +151,13 @@ This is normal.
 
 The default local Whisper model is `large-v3-turbo`. Apple Silicon Macs use MPS by default, while Intel Macs, Windows, and Linux use CPU by default.
 
+Apple Silicon Macs are usually much faster than CPU mode, but the first model load can take longer.
+
 First launch or the first recording may be slower because Whisper is downloading, loading, or warming up. Later checks should be faster.
 
 On macOS, the app can use Whisper + Apple STT comparison when supported. Apple STT may return first, while the Whisper score can arrive later.
 
-Apple STT needs macOS Speech Recognition permission. Open **System Settings -> Privacy & Security -> Speech Recognition**, then enable the app used to launch the backend, such as Terminal, iTerm, PyCharm, VS Code, or the command launcher. Restart `run_mac.command` after changing this permission.
+Apple STT needs macOS Speech Recognition permission. Open **System Settings -> Privacy & Security -> Speech Recognition**, then enable the app used to launch the backend. Double-clicking `run_mac.command` or running from Terminal usually needs Terminal permission. Running from a Visual Studio Code terminal needs Visual Studio Code permission. Running from a PyCharm terminal needs PyCharm permission. Restart `run_mac.command` after changing this permission.
 
 If Apple STT fails or is blocked, Whisper still works and scores your pronunciation. In Whisper + Apple STT mode, Apple STT is optional diagnostic comparison while Whisper remains the main scoring provider.
 
@@ -224,7 +228,7 @@ Raw technical details are hidden under **Advanced details**.
 | Browser asks for microphone access | The app needs permission to record. | Click Allow. |
 | First check is very slow | A speech model is loading or downloading. | Wait. Later checks are usually faster. |
 | Apple STT is skipped | Apple Speech is optional on macOS. | You can ignore this and use Whisper. |
-| Apple STT is blocked by macOS | Speech Recognition permission is missing for the app that launched the backend. | Enable Speech Recognition for Terminal, iTerm, PyCharm, VS Code, or the command launcher, then restart `run_mac.command`. |
+| Apple STT is blocked by macOS | Speech Recognition permission is missing for the app that launched the backend. Browser microphone permission is different. | Enable Speech Recognition for Terminal, Visual Studio Code, PyCharm, iTerm, or the command launcher, then restart `run_mac.command`. |
 | Native comparison is skipped on Windows | Windows uses Whisper by default. | This is expected. |
 | App opens command windows | The app is running locally. | Keep them open while using the app. |
 | Browser does not open | The app may still be starting. | Open `http://localhost:6173` manually. |

@@ -209,9 +209,11 @@ MPS is never selected outside macOS. Native STT failures are reported with statu
 
 ## Apple STT
 
-Apple STT is macOS-only and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It requires Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, PyCharm, VS Code, or the command launcher.
+Apple STT is macOS-only, optional, and experimental. It uses Apple’s native Speech framework through a small Swift helper launched by Python. It requires Speech Recognition permission for the app that starts the backend, such as Terminal, iTerm, PyCharm, Visual Studio Code, or the command launcher.
 
-Open **System Settings -> Privacy & Security -> Speech Recognition**, enable the backend-launching app, then restart `run_mac.command`. If Apple STT fails, OpenAI Whisper still works and scores pronunciation. In Whisper + Apple STT mode, Apple STT is optional diagnostic comparison while Whisper remains the main scoring provider.
+Open **System Settings -> Privacy & Security -> Speech Recognition**, enable the backend-launching app, then restart `run_mac.command`. Double-clicking `run_mac.command` or launching from Terminal usually requires Terminal permission. Launching from a Visual Studio Code terminal requires Visual Studio Code permission. Launching from a PyCharm terminal requires PyCharm permission. Browser microphone permission is separate.
+
+If Apple STT fails, OpenAI Whisper still works and scores pronunciation. In Whisper + Apple STT mode, Apple STT is optional diagnostic comparison while Whisper remains the main scoring provider.
 
 Optional permission smoke check:
 
@@ -344,6 +346,32 @@ Actual speed depends heavily on model, CPU/GPU, and whether the model is already
 - NVIDIA CUDA can speed up Whisper on Windows/Linux when the installed PyTorch build supports CUDA.
 - AMD GPUs on Windows generally fall back to CPU in this repo.
 
+### Example Performance Benchmark
+
+These numbers are from one Apple Silicon macOS test machine. They are examples only and are not guaranteed performance numbers.
+
+- Backend: OpenAI Whisper.
+- Model: `large-v3-turbo`.
+- MPS mode uses Apple Silicon GPU acceleration.
+- The recordings were short pronunciation-practice recordings.
+- Actual speed depends on hardware, macOS, Python/PyTorch versions, audio length, selected language, model cache state, and whether Apple STT permission is enabled.
+- These are not guaranteed performance numbers.
+
+| Mode | Language | Whisper time | Apple STT | Provider setup/model load | Total request |
+| --- | --- | ---: | ---: | ---: | ---: |
+| MPS | Vietnamese | 5692 ms | 1138 ms | 1274 ms | 8095 ms |
+| MPS warmed | Polish | 4124 ms | 4177 ms | 1 ms | 5213 ms |
+| CPU after switch | Polish | 26721 ms | 4242 ms | 12040 ms | 39936 ms |
+| CPU warmed | Vietnamese | 28485 ms | 957 ms | 1 ms | 29602 ms |
+
+Interpretation:
+
+- MPS is much faster than CPU for `large-v3-turbo` on this test machine.
+- Warmed requests avoid most model-load overhead.
+- Switching devices can cause a large one-time model-load cost.
+- In Whisper + Apple STT mode, total provider time is usually limited by the slower provider.
+- Apple STT can be quick, but it requires macOS Speech Recognition permission.
+
 ## Practice Features
 
 The web app keeps:
@@ -408,8 +436,10 @@ MPS is unavailable:
 Apple Speech permission fails:
 
 - Open System Settings -> Privacy & Security -> Speech Recognition.
-- Enable the app that launched the backend: Terminal, iTerm, PyCharm, VS Code, or the command launcher.
+- Enable the app that launched the backend: Terminal for double-click `run_mac.command` or Terminal launch, Visual Studio Code for a Visual Studio Code terminal, PyCharm for a PyCharm terminal, or iTerm for an iTerm launch.
 - Restart `run_mac.command` after changing macOS permissions.
+- Browser microphone permission is not enough; Speech Recognition is a separate macOS permission.
+- Optional check: `./scripts/check_apple_stt.sh`.
 - Whisper still works if Apple STT is blocked.
 
 Microphone permission fails:

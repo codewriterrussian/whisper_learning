@@ -32,6 +32,8 @@ Use this checklist before tagging a public release.
 - [ ] macOS Advanced Mode: if Whisper/MPS fails, the app shows a clear non-fatal error or fallback message without breaking the UI.
 - [ ] macOS: Apple Speech-only either works or shows a clear unavailable/permission warning.
 - [ ] macOS: Both mode returns Whisper and keeps scoring visible even if Apple STT is blocked by Speech Recognition permission.
+- [ ] macOS: Run from Terminal and confirm Apple STT works when Terminal has Speech Recognition permission.
+- [ ] macOS: Run from a Visual Studio Code terminal, or document that Visual Studio Code needs separate Speech Recognition permission before Apple STT can work there.
 - [ ] Windows: Whisper-only works.
 - [ ] Windows: provider selector defaults to Whisper only and shows native comparison as skipped.
 - [ ] Linux: only Whisper is available in the provider selector.
