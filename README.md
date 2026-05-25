@@ -1,8 +1,12 @@
 <!-- Documentation Navigation -->
 <p align="right">
-  <a href="./README_en.md">English full docs</a> |
-  <a href="./README_BEGINNER.md">Beginner English</a> |
-  <a href="./README_BEGINNER_zh-TW.md">初學者繁體中文</a>
+  Full docs:
+  <a href="./README_en.md">English</a> |
+  <a href="./README_zh-TW.md">繁體中文</a>
+  <br>
+  Beginner:
+  <a href="./README_BEGINNER.md">English</a> |
+  <a href="./README_BEGINNER_zh-TW.md">繁體中文</a>
 </p>
 
 # Whisper Speaking Practice
@@ -21,7 +25,7 @@ English:
 繁體中文:
 
 - 新使用者：[README_BEGINNER_zh-TW.md](README_BEGINNER_zh-TW.md)
-- 技術細節：[README_en.md](README_en.md)
+- 技術細節：[README_zh-TW.md](README_zh-TW.md)
 
 ## What It Does / 功能
 
@@ -102,6 +106,7 @@ Optional check / 可選檢查:
 ## More Docs / 更多文件
 
 - [README_en.md](README_en.md) — full English technical manual
+- [README_zh-TW.md](README_zh-TW.md) — 完整繁體中文技術文件
 - [README_BEGINNER.md](README_BEGINNER.md) — beginner English guide
 - [README_BEGINNER_zh-TW.md](README_BEGINNER_zh-TW.md) — 初學者繁體中文指南
 - [RELEASE_NOTES.md](RELEASE_NOTES.md)
